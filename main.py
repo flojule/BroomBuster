@@ -1,6 +1,6 @@
 import car, gps, maps, notification, analysis
 
-import os, time, geopandas
+import time, geopandas
 from datetime import datetime
 
 # run twice a day, 8am and 6pm. Filter out day when running 6pm or later
@@ -13,7 +13,7 @@ if __name__ == "__main__":
 
     myCar = car.Car()
 
-    file_path = os.getcwd() + "/street_sweeping/oakland/StreetSweeping.shp"
+    file_path = "oakland/StreetSweeping.shp"
     myCity = geopandas.read_file(file_path)
     
     interval = 1  # hours
