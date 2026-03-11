@@ -234,14 +234,36 @@ def _build_info_panel(myCar, schedule_even, schedule_odd):
     number  = getattr(myCar, "street_number", None)
     car_side = "even" if (number and number % 2 == 0) else "odd"
 
-    lines = [
+    def _sched_parts(entries):
+        valid = [e for e in entries if e and len(e) >= 3]
+        seen, parts = set(), []
+        for entry in valid:
+            key = (entry[1], entry[2])
+            if key not in seen:
+                t    = entry[2]
+                body = entry[1] if not t else f"{entry[1]} \u2014 {t}"
+                parts.append(body)
+                seen.add(key)
+        return parts
+
+    even_parts = _sched_parts(schedule_even)
+    odd_parts  = _sched_parts(schedule_odd)
+
+    header = [
         f"<b>{CAR_NAME}:</b> {addr}",
         f"<b>Date:</b> {today.strftime('%A, %B %-d %Y')}",
         "",
-        _fmt_schedule(schedule_even, "Even side", highlight=(car_side == "even")),
-        _fmt_schedule(schedule_odd,  "Odd side",  highlight=(car_side == "odd")),
     ]
-    return "<br>".join(lines)
+
+    if even_parts and even_parts == odd_parts:
+        sched = [f"&#9658;&nbsp;<b>Street:</b> {' / '.join(even_parts)}"]
+    else:
+        sched = [
+            _fmt_schedule(schedule_even, "Even side", highlight=(car_side == "even")),
+            _fmt_schedule(schedule_odd,  "Odd side",  highlight=(car_side == "odd")),
+        ]
+
+    return "<br>".join(header + sched)
 
 
 # ---------------------------------------------------------------------------
@@ -374,10 +396,25 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
             continue
         color = _sweeping_color(row)
         pri   = _PRIORITY[color]
+        de  = _safe(row.get("DESC_EVEN"))
+        te  = _safe(row.get("TIME_EVEN"))
+        do_ = _safe(row.get("DESC_ODD"))
+        to_ = _safe(row.get("TIME_ODD"))
+        body_e = de  if (te  in ("N/A", "") or te  in de)  else f"{de} \u2014 {te}"
+        body_o = do_ if (to_ in ("N/A", "") or to_ in do_) else f"{do_} \u2014 {to_}"
+        na = "N/A"
+        if body_e != na and body_e == body_o:
+            sched_html = f"Street: {body_e}"
+        elif body_e == na and body_o == na:
+            sched_html = "No sweeping data"
+        else:
+            sched_html = (
+                _hover_side(row.get("DESC_EVEN"), row.get("TIME_EVEN"), "Even") + "<br>"
+                + _hover_side(row.get("DESC_ODD"),  row.get("TIME_ODD"),  "Odd")
+            )
         hover = (
             f"<b>{_safe(row.get('STREET_NAME'))}</b><br>"
-            + _hover_side(row.get("DESC_EVEN"), row.get("TIME_EVEN"), "Even") + "<br>"
-            + _hover_side(row.get("DESC_ODD"),  row.get("TIME_ODD"),  "Odd")
+            + sched_html
         )
         for x, y in _geom_lines(geom):
             x, y = list(x), list(y)

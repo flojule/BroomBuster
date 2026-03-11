@@ -9,7 +9,7 @@ import time
 
 # Regional mode: load all cities in a region together.
 # Available regions: "bay_area", "chicago"  (see src/cities.py → REGIONS)
-REGION = "chicago"
+REGION = "bay_area"
 
 # Set SINGLE_CITY_MODE = True to load only the city named in CITY below.
 # Useful while developing or when other cities' data files aren't available yet.

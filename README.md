@@ -2,7 +2,11 @@
 
 An interactive tool that shows where your car is parked on a live map and tells you whether street sweeping applies to that block — today, tomorrow, or not at all.  Supports multiple cities across the Bay Area and Chicago.
 
-![Map screenshot — Oakland](images/oakland.png)
+**Bay Area**
+
+![Map screenshot — Bay Area](images/bay_area.png)
+
+**Chicago, IL**
 
 ![Map screenshot — Chicago](images/chicago.png)
 
@@ -27,8 +31,8 @@ An interactive tool that shows where your car is parked on a live map and tells 
 | Oakland, CA | Bundled shapefile | ✅ Ready |
 | San Francisco, CA | Auto-download from DataSF on first run | ✅ Ready |
 | Chicago, IL | 849 ward-section zones auto-download from Chicago Data Portal | ✅ Ready |
-| Berkeley, CA | Manual download from Berkeley Open Data | ⚠️ Data file required |
-| Alameda, CA | No public GIS layer — requires manual digitisation | ⚠️ Data file required |
+| Berkeley, CA | PDF schedules parsed by build script | ✅ Ready |
+| Alameda, CA | PDF schedule parsed by build script | ✅ Ready |
 
 ## Project layout
 
@@ -38,7 +42,7 @@ BroomBuster/
 │   └── oakland/
 │       └── StreetSweeping.shp      # Bundled Oakland shapefile
 ├── images/
-│   ├── oakland.png                 # Screenshots used in this README
+│   ├── bay_area.png                # Screenshots used in this README
 │   └── chicago.png
 ├── src/
 │   ├── main.py          # Entry point — configure and run here
@@ -111,23 +115,13 @@ The script opens a browser tab with the interactive map and prints the schedule 
 
 ### Bay Area
 
-**Berkeley** — download the GeoJSON from [Berkeley Open Data](https://data.cityofberkeley.info/Transportation/Street-Sweeping/s7pi-7kgv) (Export → GeoJSON) and save to `data/berkeley/StreetSweeping.geojson`.  Then update `_normalise_berkeley` in `data_loader.py` once you've inspected the column names:
-```python
-import geopandas
-print(geopandas.read_file("data/berkeley/StreetSweeping.geojson").columns.tolist())
-```
+**Berkeley** — schedule published as a PDF at [berkeleyca.gov](https://berkeleyca.gov/city-services/streets-sidewalks-sewers-and-utilities/street-sweeping).  Save the PDFs to `data/berkeley/`, then run `scripts/build_berkeley_geojson.py` to generate `data/berkeley/StreetSweeping.geojson`.
 
-**Alameda** — no public GIS layer is currently known; the city publishes sweeping schedules as PDF maps only.  If a GeoJSON or Shapefile becomes available, save it to `data/alameda/StreetSweeping.geojson` and update `_normalise_alameda` in `data_loader.py`.
+**Alameda** — schedule published as a PDF at [alamedaca.gov](https://www.alamedaca.gov/Residents/Transportation-and-Streets/Street-Sweeping-Schedule).  Save the PDF as `data/alameda/street-sweeping-schedule.pdf`, then run `scripts/build_alameda_geojson.py` to generate `data/alameda/StreetSweeping.geojson`.
 
 ### Chicago
 
-Chicago's sweeping data is a single dataset on the [Chicago Data Portal](https://data.cityofchicago.org) that bundles both polygon geometry and monthly schedule into one GeoJSON export:
-
-| Dataset | Socrata ID | What's inside |
-|---|---|---|
-| **Street Sweeping Zones** | `utb4-q645` | 849 MultiPolygon ward-section zones, each with month columns (`april`…`november`) marking which dates cleaning runs |
-
-The file is downloaded automatically on first run and cached to `data/chicago/StreetSweepingZones.geojson`.  Chicago publishes a new dataset each year (typically March/April) — update the Socrata dataset ID in `cities.py → chicago_all` when that happens, then delete the cached file to force a re-download.
+Data auto-downloads from the [Chicago Data Portal](https://data.cityofchicago.org) (Socrata dataset `utb4-q645`).  Chicago publishes a new dataset each year (typically March/April) — update the ID in `cities.py → chicago_all` and delete the cached file to force a re-download.
 
 ## Traccar GPS setup
 

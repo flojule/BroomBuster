@@ -449,25 +449,26 @@ def _normalise_generic(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Berkeley  (placeholder — update once data is obtained)
+# Berkeley
 # ---------------------------------------------------------------------------
 
 def _normalise_berkeley(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     """
-    Berkeley street-sweeping normaliser.
+    Berkeley normaliser.
 
-    Download the data from:
-      https://data.cityofberkeley.info/Transportation/Street-Sweeping/s7pi-7kgv
-    Export as GeoJSON and save to data/berkeley/StreetSweeping.geojson.
-
-    Then inspect the columns with:
-      geopandas.read_file("data/berkeley/StreetSweeping.geojson").columns
-
-    Once the column names are known, replace this function with a proper
-    mapping (see _normalise_oakland for a reference).  Until then, the
-    generic auto-detector is used (schedule info will be empty).
+    The GeoJSON is pre-built by scripts/build_berkeley_geojson.py (which parses
+    the city's PDF schedules and joins them to OSM street geometry).  All
+    standard columns are already present; this function just ensures nothing
+    is missing.
     """
-    return _normalise_generic(gdf)
+    out = gdf.copy()
+    for col in ("DAY_EVEN", "DAY_ODD", "DESC_EVEN", "DESC_ODD", "TIME_EVEN", "TIME_ODD"):
+        if col not in out.columns:
+            out[col] = None
+    for col in ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD"):
+        if col not in out.columns:
+            out[col] = np.nan
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -476,19 +477,18 @@ def _normalise_berkeley(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 
 def _normalise_alameda(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     """
-    Alameda street-sweeping normaliser.
+    Alameda normaliser.
 
-    Alameda currently publishes sweeping schedules as PDFs only.  If a GeoJSON
-    or Shapefile becomes available, save it to data/alameda/StreetSweeping.geojson
-    and update this function.
-
-    Alternatively, digitise the PDF schedule manually:
-      1. Load the PDF route map in QGIS alongside an OSM base layer.
-      2. Trace the street segments and tag each with day/time/side attributes.
-      3. Export as GeoJSON using the column names expected by _normalise_generic.
-
-    Until proper data exists, the generic auto-detector is used (schedule info
-    will be empty).
+    The GeoJSON is pre-built by scripts/build_alameda_geojson.py (which parses
+    the city's PDF schedule and joins it to OSM street geometry).  All standard
+    columns are already present; this function just ensures nothing is missing.
     """
-    return _normalise_generic(gdf)
+    out = gdf.copy()
+    for col in ("DAY_EVEN", "DAY_ODD", "DESC_EVEN", "DESC_ODD", "TIME_EVEN", "TIME_ODD"):
+        if col not in out.columns:
+            out[col] = None
+    for col in ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD"):
+        if col not in out.columns:
+            out[col] = np.nan
+    return out
 

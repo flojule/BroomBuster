@@ -11,7 +11,7 @@ _STREET_SUFFIXES = re.compile(
 
 def _norm_name(name: str) -> str:
     """Strip trailing street-type suffix and whitespace for comparison."""
-    return _STREET_SUFFIXES.sub("", name).strip()
+    return _STREET_SUFFIXES.sub("", name).strip().upper()
 
 
 # Map sweeping letter codes to weekday integers
