@@ -173,20 +173,57 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
 
     myCity_ = myCity.to_crs("EPSG:4326")
 
-    # Bucket street segments by colour so each colour is a single trace
-    COLORS = ("tomato", "orange", "cornflowerblue")
-    buckets = {c: {"lats": [], "lons": [], "texts": []} for c in COLORS}
+    # Bucket street segments by colour so each colour is a single trace.
+    # Two-pass deduplication: pass 1 finds the highest-urgency colour for each
+    # unique segment; pass 2 renders only that colour, once per segment.
+    # This prevents duplicate lines when SF/Oakland have multiple rows for the
+    # same block (e.g. one row per sweep day).
+    COLORS    = ("tomato", "orange", "cornflowerblue")
+    _PRIORITY = {"tomato": 2, "orange": 1, "cornflowerblue": 0}
+    buckets   = {c: {"lats": [], "lons": [], "texts": []} for c in COLORS}
 
+    def _seg_key(x, y):
+        return frozenset({
+            (round(x[0], 5), round(y[0], 5)),
+            (round(x[-1], 5), round(y[-1], 5)),
+        })
+
+    # Pass 1: determine the best (highest) priority for each segment key
+    best_pri_per_key: dict = {}
+    for _, row in myCity_.iterrows():
+        pri = _PRIORITY[_sweeping_color(row)]
+        for x, y in _geom_lines(row["geometry"]):
+            x, y = list(x), list(y)
+            k = _seg_key(x, y)
+            if pri > best_pri_per_key.get(k, -1):
+                best_pri_per_key[k] = pri
+
+    def _hover_side(desc, time, label):
+        """Format one side of the hover: omit time if already in the description."""
+        d, t = _safe(desc), _safe(time)
+        body = d if (t in ("N/A", "") or t in d) else f"{d} \u2014 {t}"
+        return f"{label}: {body}"
+
+    # Pass 2: render each segment at its best colour, exactly once
+    rendered_keys: set = set()
     for _, row in myCity_.iterrows():
         geom  = row["geometry"]
         color = _sweeping_color(row)
+        pri   = _PRIORITY[color]
         hover = (
             f"<b>{_safe(row.get('STREET_NAME'))}</b><br>"
-            f"Even: {_safe(row.get('DESC_EVEN'))} \u2014 {_safe(row.get('TIME_EVEN'))}<br>"
-            f"Odd:  {_safe(row.get('DESC_ODD'))} \u2014 {_safe(row.get('TIME_ODD'))}"
+            + _hover_side(row.get("DESC_EVEN"), row.get("TIME_EVEN"), "Even") + "<br>"
+            + _hover_side(row.get("DESC_ODD"),  row.get("TIME_ODD"),  "Odd")
         )
         for x, y in _geom_lines(geom):
-            dx, dy = _densify(list(x), list(y))
+            x, y = list(x), list(y)
+            k = _seg_key(x, y)
+            if pri < best_pri_per_key.get(k, 0):
+                continue          # a more urgent colour applies to this segment
+            if k in rendered_keys:
+                continue          # already plotted this geometry
+            rendered_keys.add(k)
+            dx, dy = _densify(x, y)
             buckets[color]["lats"].extend(dy + [None])
             buckets[color]["lons"].extend(dx + [None])
             buckets[color]["texts"].extend([hover] * len(dx) + [None])

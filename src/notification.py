@@ -26,16 +26,23 @@ def send_email(message):
     except Exception as e:
         print(f"Failed to send email: {e}")
 
-def compose_message(myStreetName, myNumber, myStreets, schedule):
+def compose_message(schedule_even, schedule_odd, car_side):
+    """Return a plain-text schedule summary matching the map info panel layout."""
 
-    schedule_ = [x[1:] for x in schedule]
-    schedule_text = '\n'.join([f"{x[0]}, {x[1]}" for x in schedule_])
+    def _fmt_plain(entries, label, highlight):
+        valid = [e for e in entries if e and len(e) >= 3]
+        prefix = "►" if highlight else " "
+        if not valid:
+            return f"{prefix} {label}: no sweeping"
+        seen = set()
+        parts = []
+        for entry in valid:
+            key = (entry[1], entry[2])
+            if key not in seen:
+                parts.append(f"{entry[1]} \u2014 {entry[2]}")
+                seen.add(key)
+        return f"{prefix} {label}: {' / '.join(parts)}"
 
-    if myStreetName == myStreets[0]:
-        message = f"The car nearest address is: {myNumber} {myStreetName}\nThis is the schedule for that side of the street:\n{schedule_text}"
-    elif myStreetName == myStreets[1]:
-        message = f"The car nearest address is: {myNumber} {myStreetName}\nThe car nearest street is: {myStreets[0]}\nThe nearest street does not match nearest address\n\nThis is the schedule for the street:\n {schedule_text}"
-    else:
-        message = f"There is a problem, check the data"
-
-    return message
+    even_line = _fmt_plain(schedule_even, "Even side", highlight=(car_side == "even"))
+    odd_line  = _fmt_plain(schedule_odd,  "Odd side",  highlight=(car_side == "odd"))
+    return f"{even_line}\n{odd_line}"

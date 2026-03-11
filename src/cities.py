@@ -33,9 +33,11 @@ CITIES = {
         "manual_default": {"lat": 37.7749, "lon": -122.4194},
         "local_path": "data/san_francisco/StreetSweeping.geojson",
         # DataSF – Street Sweeping Schedule (dataset yhqp-riqs)
+        # The geospatial export endpoint returns 400; use the Socrata GeoJSON
+        # resource API instead (supports up to ~200 k rows with $limit).
         "url": (
-            "https://data.sfgov.org/api/geospatial/yhqp-riqs"
-            "?method=export&type=GeoJSON"
+            "https://data.sfgov.org/resource/yhqp-riqs.geojson"
+            "?$limit=200000"
         ),
         "schema": "sf",
     },

@@ -13,7 +13,7 @@ REGION = "bay_area"
 
 # Set SINGLE_CITY_MODE = True to load only the city named in CITY below.
 # Useful while developing or when other cities' data files aren't available yet.
-SINGLE_CITY_MODE = True
+SINGLE_CITY_MODE = False
 
 # City used when SINGLE_CITY_MODE = True.
 # Available keys: "oakland", "san_francisco", "berkeley", "alameda", "chicago_edgewater"
@@ -24,8 +24,9 @@ CITY = "oakland"
 USE_LIVE_GPS = False
 
 # Manual location override (defaults to city / region center when None).
-MANUAL_LAT = None
-MANUAL_LON = None
+# Set to your car's position to override. Oakland example kept as default:
+MANUAL_LAT = 37.821326
+MANUAL_LON = -122.280705
 
 PLOT              = True   # Open an interactive map in the browser
 SEND_NOTIFICATION = False  # Send an email when sweeping is today or tomorrow
@@ -38,6 +39,7 @@ if __name__ == "__main__":
     if SINGLE_CITY_MODE:
         city_cfg = CITIES[CITY]
         myCity   = data_loader.load_city_data(CITY)
+        myCity["_city"] = CITY
         default_lat = city_cfg["manual_default"]["lat"]
         default_lon = city_cfg["manual_default"]["lon"]
     else:
@@ -51,6 +53,21 @@ if __name__ == "__main__":
 
     myCar = car.Car(lat=lat, lon=lon)
 
+    # Pre-compute the city key closest to the car's starting position so that
+    # analysis.py can filter cross-city name collisions.
+    def _nearest_city(lat, lon):
+        active = (
+            [CITY] if SINGLE_CITY_MODE
+            else REGIONS[REGION]["cities"]
+        )
+        best, best_d = active[0], float("inf")
+        for ck in active:
+            c = CITIES[ck]["center"]
+            d = (c["lat"] - lat) ** 2 + (c["lon"] - lon) ** 2
+            if d < best_d:
+                best, best_d = ck, d
+        return best
+
     try:
         while True:
 
@@ -61,20 +78,24 @@ if __name__ == "__main__":
             else:
                 myCar.set_location(lat, lon)
 
-            # 2. Reverse-geocode to get street name, number, and nearby streets
+            # 2. Tag the car with its nearest city key (used in analysis)
+            myCar._city = _nearest_city(myCar.lat, myCar.lon)
+
+            # 3. Reverse-geocode to get street name, number, and nearby streets
             myCar.get_info()
+            print()
             print(myCar)
 
-            # 3. Analyse street-sweeping schedule for the car's current block
+            # 4. Analyse street-sweeping schedule for the car's current block
             schedule, schedule_even, schedule_odd, message = analysis.check_street_sweeping(myCar, myCity)
             print(message)
 
-            # 4. Show interactive map with car position and schedule info
+            # 5. Show interactive map with car position and schedule info
             if PLOT:
                 maps.plot_map(myCar, myCity, schedule_even=schedule_even,
                               schedule_odd=schedule_odd, message=message)
 
-            # 5. Notify if sweeping is today or tomorrow
+            # 6. Notify if sweeping is today or tomorrow
             if SEND_NOTIFICATION and analysis.check_day_street_sweeping(schedule):  # noqa: E501
                 notification.send_email(message)
 

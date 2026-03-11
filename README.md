@@ -1,4 +1,4 @@
-# Street Sweeping
+# BroomBuster
 
 An interactive tool that shows where your car is parked on a live map and tells you whether street sweeping applies to that block — today, tomorrow, or not at all.  Supports multiple cities across the Bay Area and Chicago.
 
@@ -31,7 +31,7 @@ An interactive tool that shows where your car is parked on a live map and tells 
 ## Project layout
 
 ```
-street_sweeping/
+BroomBuster/
 ├── data/
 │   └── oakland/
 │       └── StreetSweeping.shp      # Bundled Oakland shapefile

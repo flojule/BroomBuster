@@ -1,9 +1,17 @@
 import gps, notification
 import calendar, re, datetime
 
+# Street-type suffixes to strip before name comparison so "CHESTNUT ST" matches
+# a segment stored as "CHESTNUT" (or vice-versa).
+_STREET_SUFFIXES = re.compile(
+    r"\b(ST|AVE|BLVD|DR|RD|CT|PL|LN|WAY|TER|TERR|CIR|HWY|PKWY|EXPY|"
+    r"STREET|AVENUE|BOULEVARD|DRIVE|ROAD|COURT|PLACE|LANE|CIRCLE|HIGHWAY)\b\.?$",
+    re.IGNORECASE,
+)
 
-# handle these times 
-# {'3:00AM-6:00AM', '12:00AM-3:00AM', '12:30PM-3:30PM', '2:00AM-3:00AM', '6:00AM-8:00AM', 'NA', '9:00AM-12:00PM'}
+def _norm_name(name: str) -> str:
+    """Strip trailing street-type suffix and whitespace for comparison."""
+    return _STREET_SUFFIXES.sub("", name).strip()
 
 
 # Map sweeping letter codes to weekday integers
@@ -62,28 +70,42 @@ def check_street_sweeping(myCar, myCity):
         if o:
             schedule_odd.add(o)
 
+    # City key for the car's location (used to restrict no-range fallback)
+    car_city = getattr(myCar, "_city", None)
+
+    def _name_matches(sec_name: str, target: str) -> bool:
+        """True when the segment name and target refer to the same street."""
+        return _norm_name(sec_name) == _norm_name(target)
+
     if myStreets and myStreetName == myStreets[0]:
         for _, street_section in myCity.iterrows():
-            if _is_str(street_section.get("STREET_NAME")):
-                sec_name = street_section["STREET_NAME"].lower()
-                if myStreetName.lower().startswith(sec_name):
-                    l_f = _safe_int(street_section.get("L_F_ADD"))
-                    l_t = _safe_int(street_section.get("L_T_ADD"))
-                    r_f = _safe_int(street_section.get("R_F_ADD"))
-                    r_t = _safe_int(street_section.get("R_T_ADD"))
-                    if l_f is not None and l_t is not None and r_f is not None and r_t is not None:
-                        if myNumber and (l_f < myNumber < l_t or r_f < myNumber < r_t):
-                            _collect(street_section)
-                    else:
-                        _collect(street_section)
+            if not _is_str(street_section.get("STREET_NAME")):
+                continue
+            sec_name = street_section["STREET_NAME"]
+            if not _name_matches(sec_name, myStreetName):
+                continue
+            # If the segment belongs to a different city than the car, skip it
+            # unless we have address ranges to confirm a match.
+            seg_city = street_section.get("_city")
+            l_f = _safe_int(street_section.get("L_F_ADD"))
+            l_t = _safe_int(street_section.get("L_T_ADD"))
+            r_f = _safe_int(street_section.get("R_F_ADD"))
+            r_t = _safe_int(street_section.get("R_T_ADD"))
+            if l_f is not None and l_t is not None and r_f is not None and r_t is not None:
+                if myNumber and (l_f <= myNumber <= l_t or r_f <= myNumber <= r_t):
+                    _collect(street_section)
+            else:
+                # No address ranges — only use if city matches (or unknown)
+                if car_city is None or seg_city is None or seg_city == car_city:
+                    _collect(street_section)
 
     elif myStreets and len(myStreets) > 1 and myStreetName == myStreets[1]:
         myActualStreet = myStreets[0]
         for _, street_section in myCity.iterrows():
-            if _is_str(street_section.get("STREET_NAME")):
-                sec_name = street_section["STREET_NAME"].lower()
-                if myActualStreet.lower().startswith(sec_name):
-                    _collect(street_section)
+            if not _is_str(street_section.get("STREET_NAME")):
+                continue
+            if _name_matches(street_section["STREET_NAME"], myActualStreet):
+                _collect(street_section)
 
     else:
         pass  # no segment match; zone fallback below covers area-based data
@@ -117,7 +139,8 @@ def check_street_sweeping(myCar, myCity):
     schedule_even = list(schedule_even)
     schedule_odd  = list(schedule_odd)
 
-    message = notification.compose_message(myStreetName, myNumber, myStreets, schedule)
+    car_side = "even" if (myNumber and myNumber % 2 == 0) else "odd"
+    message = notification.compose_message(schedule_even, schedule_odd, car_side)
 
     return schedule, schedule_even, schedule_odd, message
 

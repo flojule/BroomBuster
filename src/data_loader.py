@@ -99,7 +99,11 @@ def load_region_data(region_key: str) -> geopandas.GeoDataFrame:
         )
 
     combined = geopandas.GeoDataFrame(
-        pd.concat(gdfs, ignore_index=True), crs=gdfs[0].crs
+        pd.concat(
+            [g.to_crs("EPSG:4326") for g in gdfs],
+            ignore_index=True,
+        ),
+        crs="EPSG:4326",
     )
     print(f"Region ready — {len(combined)} total segments.")
     return combined
@@ -185,7 +189,9 @@ _SF_DAY_MAP = {
     "1": "M",  "2": "T",  "3": "W",  "4": "TH", "5": "F", "6": "S", "7": "SU",
     "monday": "M", "tuesday": "T", "wednesday": "W", "thursday": "TH",
     "friday": "F", "saturday": "S", "sunday": "SU",
-    "mon": "M", "tue": "T", "wed": "W", "thu": "TH",
+    # 3-4 letter abbreviations used by DataSF (e.g. "Tues", "Thurs")
+    "mon": "M", "tue": "T", "tues": "T", "wed": "W", "weds": "W",
+    "thu": "TH", "thur": "TH", "thurs": "TH",
     "fri": "F", "sat": "S", "sun": "SU",
 }
 
@@ -252,7 +258,7 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     day_col   = col("week_day", "weekday")
     fh_col    = col("from_hour", "fromhour")
     th_col    = col("to_hour", "tohour")
-    week_cols = [(n, col(f"week_{n}_of_month", f"week{n}ofmonth")) for n in range(1, 6)]
+    week_cols = [(n, col(f"week_{n}_of_month", f"week{n}ofmonth", f"week{n}")) for n in range(1, 6)]
 
     out["STREET_NAME"] = (
         out[name_col].fillna("").str.strip().str.upper() if name_col else ""
@@ -267,7 +273,16 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
         code = _sf_code(row, day_col, week_cols)
         time = _sf_time(row, fh_col, th_col)
         desc = _sf_desc(code, time)
-        side = str(row.get(side_col, "BOTH") if side_col else "BOTH").upper()
+        # SF blockside uses compass directions ("SouthEast", "West", …) which
+        # don't map to even/odd.  Treat anything that isn't explicitly EVEN or
+        # ODD as applying to BOTH sides.
+        raw_side = str(row.get(side_col, "") if side_col else "").upper()
+        if raw_side == "EVEN":
+            side = "EVEN"
+        elif raw_side == "ODD":
+            side = "ODD"
+        else:
+            side = "BOTH"
         if side in ("EVEN", "BOTH"):
             out.at[idx, "DAY_EVEN"]  = code
             out.at[idx, "DESC_EVEN"] = desc
