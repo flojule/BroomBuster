@@ -135,9 +135,8 @@ def _normalise(gdf: geopandas.GeoDataFrame, schema: str) -> geopandas.GeoDataFra
         "oakland":  _normalise_oakland,
         "sf":       _normalise_sf,
         "chicago":  _normalise_chicago,
-        "berkeley": _normalise_berkeley,
-        "alameda":  _normalise_alameda,
-        "generic":  _normalise_generic,
+        "berkeley": _normalise_prebuilt,
+        "alameda":  _normalise_prebuilt,
     }
     fn = dispatch.get(schema)
     if fn is None:
@@ -402,86 +401,14 @@ def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Generic  (best-effort auto-detection for unknown schemas)
+# Berkeley / Alameda  (pre-built GeoJSON — all columns already present)
 # ---------------------------------------------------------------------------
 
-def _normalise_generic(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
+def _normalise_prebuilt(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     """
-    Best-effort normaliser for cities whose schema is not yet mapped.
-
-    Detects STREET_NAME and address-range columns from common naming patterns
-    and leaves all schedule fields empty.  Once you have the actual data, run
-        geopandas.read_file(path).columns
-    and write a dedicated normaliser (like _normalise_oakland) for accurate
-    sweeping schedule information.
-    """
-    out = gdf.copy()
-    c = {col.lower(): col for col in out.columns}
-
-    def _col(*alts):
-        for n in alts:
-            if n in c:
-                return c[n]
-        return None
-
-    name_col = _col(
-        "street_name", "stname", "streetname", "name", "fullname",
-        "st_name", "full_name", "label", "street",
-    )
-    out["STREET_NAME"] = (
-        out[name_col].fillna("").str.strip().str.upper() if name_col else ""
-    )
-
-    for dst, alts in [
-        ("L_F_ADD", ["l_f_add", "lfromadd", "l_fromaddr", "leftfrom"]),
-        ("L_T_ADD", ["l_t_add", "ltoadd",   "l_toaddr",   "leftto"  ]),
-        ("R_F_ADD", ["r_f_add", "rfromadd", "r_fromaddr", "rightfrom"]),
-        ("R_T_ADD", ["r_t_add", "rtoadd",   "r_toaddr",   "rightto"  ]),
-    ]:
-        found = _col(*alts)
-        out[dst] = out[found] if found else np.nan
-
-    for col_name in ("DAY_EVEN", "DAY_ODD", "DESC_EVEN", "DESC_ODD",
-                     "TIME_EVEN", "TIME_ODD"):
-        out[col_name] = None
-
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Berkeley
-# ---------------------------------------------------------------------------
-
-def _normalise_berkeley(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
-    """
-    Berkeley normaliser.
-
-    The GeoJSON is pre-built by scripts/build_berkeley_geojson.py (which parses
-    the city's PDF schedules and joins them to OSM street geometry).  All
-    standard columns are already present; this function just ensures nothing
-    is missing.
-    """
-    out = gdf.copy()
-    for col in ("DAY_EVEN", "DAY_ODD", "DESC_EVEN", "DESC_ODD", "TIME_EVEN", "TIME_ODD"):
-        if col not in out.columns:
-            out[col] = None
-    for col in ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD"):
-        if col not in out.columns:
-            out[col] = np.nan
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Alameda  (placeholder — no public GIS layer known yet)
-# ---------------------------------------------------------------------------
-
-def _normalise_alameda(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
-    """
-    Alameda normaliser.
-
-    The GeoJSON is pre-built by scripts/build_alameda_geojson.py (which parses
-    the city's PDF schedule and joins it to OSM street geometry).  All standard
-    columns are already present; this function just ensures nothing is missing.
+    Normaliser for cities whose GeoJSON is pre-built by a build script
+    (e.g. scripts/build_berkeley_geojson.py, scripts/build_alameda_geojson.py).
+    All standard columns are already present; this just ensures nothing is missing.
     """
     out = gdf.copy()
     for col in ("DAY_EVEN", "DAY_ODD", "DESC_EVEN", "DESC_ODD", "TIME_EVEN", "TIME_ODD"):

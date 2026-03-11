@@ -1,8 +1,6 @@
 import car, maps, notification, analysis, data_loader
 from cities import CITIES, REGIONS
 
-import time
-
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -72,38 +70,33 @@ if __name__ == "__main__":
         return best
 
     try:
-        while True:
+        # 1. Update car location
+        if USE_LIVE_GPS:
+            print("Fetching GPS position from Traccar…")
+            myCar.get_GPS()
+        else:
+            myCar.set_location(lat, lon)
 
-            # 1. Update car location
-            if USE_LIVE_GPS:
-                print("Fetching GPS position from Traccar…")
-                myCar.get_GPS()
-            else:
-                myCar.set_location(lat, lon)
+        # 2. Tag the car with its nearest city key (used in analysis)
+        myCar._city = _nearest_city(myCar.lat, myCar.lon)
 
-            # 2. Tag the car with its nearest city key (used in analysis)
-            myCar._city = _nearest_city(myCar.lat, myCar.lon)
+        # 3. Reverse-geocode to get street name, number, and nearby streets
+        myCar.get_info()
+        print()
+        print(myCar)
 
-            # 3. Reverse-geocode to get street name, number, and nearby streets
-            myCar.get_info()
-            print()
-            print(myCar)
+        # 4. Analyse street-sweeping schedule for the car's current block
+        schedule, schedule_even, schedule_odd, message = analysis.check_street_sweeping(myCar, myCity)
+        print(message)
 
-            # 4. Analyse street-sweeping schedule for the car's current block
-            schedule, schedule_even, schedule_odd, message = analysis.check_street_sweeping(myCar, myCity)
-            print(message)
+        # 5. Show interactive map with car position and schedule info
+        if PLOT:
+            maps.plot_map(myCar, myCity, schedule_even=schedule_even,
+                          schedule_odd=schedule_odd, message=message)
 
-            # 5. Show interactive map with car position and schedule info
-            if PLOT:
-                maps.plot_map(myCar, myCity, schedule_even=schedule_even,
-                              schedule_odd=schedule_odd, message=message)
-
-            # 6. Notify if sweeping is today or tomorrow
-            if SEND_NOTIFICATION and analysis.check_day_street_sweeping(schedule):  # noqa: E501
-                notification.send_email(message)
-
-            break  # remove this line to run continuously on a timer
-            time.sleep(CHECK_INTERVAL_H * 3600)
+        # 6. Notify if sweeping is today or tomorrow
+        if SEND_NOTIFICATION and analysis.check_day_street_sweeping(schedule):
+            notification.send_email(message)
 
     except KeyboardInterrupt:
         print("\nExiting…")

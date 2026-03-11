@@ -4,6 +4,9 @@ from geopy.geocoders import Nominatim
 import numpy as np
 import config
 
+_TRANSFORMER = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+_GEOLOCATOR = Nominatim(user_agent="broombuster")
+
 
 def get_GPS_traccar():
     """Fetch the latest position for the first registered Traccar device."""
@@ -37,11 +40,7 @@ def get_GPS_traccar():
 
 def get_street_info(myCar): # gets street from nearest address, problem at corners
 
-    # Initialize geocoder
-    geolocator = Nominatim(user_agent="geoapi")
-
-    # Get address
-    location = geolocator.reverse((myCar.lat, myCar.lon), exactly_one=True)
+    location = _GEOLOCATOR.reverse((myCar.lat, myCar.lon), exactly_one=True)
     myStreetName = location.raw['address'].get('road')
     raw_num = location.raw['address'].get('house_number')
     myNumber = None
@@ -56,10 +55,7 @@ def get_street_info(myCar): # gets street from nearest address, problem at corne
 
 def get_nearby_streets(myCar):
     
-    # Create transformer
-    transformer = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
-
-    point = transformer.transform(myCar.lon, myCar.lat)
+    point = _TRANSFORMER.transform(myCar.lon, myCar.lat)
     radius = 100
 
     # Overpass QL query to get nearby roads (within 100 meters)
@@ -100,12 +96,10 @@ def get_distance_point_line(point, point1, point2): # input gps coord
 
 def get_distance_point_polyline(point, polyline):
     distance = float('inf')
-    # Create transformer
-    transformer = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 
     for i in range(len(polyline) - 1):
-        point1 = transformer.transform(polyline[i]['lon'], polyline[i]['lat'])
-        point2 = transformer.transform(polyline[i + 1]['lon'], polyline[i + 1]['lat'])
+        point1 = _TRANSFORMER.transform(polyline[i]['lon'], polyline[i]['lat'])
+        point2 = _TRANSFORMER.transform(polyline[i + 1]['lon'], polyline[i + 1]['lat'])
         distance_temp = get_distance_point_line(point, point1, point2)
         distance = min(distance, distance_temp)
 

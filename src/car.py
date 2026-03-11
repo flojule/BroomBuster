@@ -1,4 +1,3 @@
-import geopandas, shapely
 import gps
 from datetime import datetime
 
@@ -18,7 +17,6 @@ class Car:
         self.lat = lat
         self.lon = lon
         self.time = time
-        self.set_gdf()
 
     def get_GPS(self):
         """Fetch latest position from Traccar and update location."""
@@ -35,17 +33,6 @@ class Car:
             self.streets = gps.get_nearby_streets(self)
         except Exception as e:
             print(f"Warning: could not fetch nearby streets — {e}")
-
-    def set_gdf(self):
-        # WGS84 point (EPSG:4326, degrees)
-        self.gdf = geopandas.GeoDataFrame(
-            geometry=[shapely.Point(self.lon, self.lat)],
-            crs="EPSG:4326",
-        )
-        # Web Mercator (EPSG:3857, metres) — used for distance calculations
-        self.gdf_meters = self.gdf.to_crs("EPSG:3857")
-        self.x = self.gdf_meters.geometry.x[0]
-        self.y = self.gdf_meters.geometry.y[0]
 
     def __str__(self):
         if self.street_name:

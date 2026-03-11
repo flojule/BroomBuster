@@ -63,31 +63,31 @@ BroomBuster/
 ### 1. Install dependencies
 
 ```bash
-pip install geopandas shapely pyproj plotly geopy requests python-dotenv
+pip install -r requirements.txt
 ```
 
-### 2. Configure credentials
+### 2. Configure credentials *(optional)*
 
-Copy `.env.example` to `.env` and fill in your values:
+**No account is required to run the app.**  By default, `USE_LIVE_GPS = False` and `SEND_NOTIFICATION = False`, so neither Traccar nor Gmail is touched.  The map will open using whichever coordinates are set in `MANUAL_LAT` / `MANUAL_LON` (or the region's built-in default).
+
+Only create a `.env` file if you want live GPS or email alerts:
 
 ```bash
-cp .env.example .env
+cp .env.example .env   # then edit the relevant section(s)
 ```
 
 ```dotenv
-# Traccar server (only needed when USE_LIVE_GPS = True)
+# ── Live GPS (only when USE_LIVE_GPS = True) ──────────────────────────────
 TRACCAR_URL=https://demo4.traccar.org
 TRACCAR_USERNAME=you@example.com
 TRACCAR_PASSWORD=your_traccar_password
 
-# Gmail notification (only needed when SEND_NOTIFICATION = True)
-# Use a Gmail App Password, not your account password
+# ── Email alerts (only when SEND_NOTIFICATION = True) ────────────────────
+# Use a Gmail App Password, not your account password.
 EMAIL_SENDER=you@gmail.com
 EMAIL_RECEIVER=you@gmail.com
 EMAIL_PASSWORD=your_gmail_app_password
 ```
-
-Alternatively, export the variables in your shell before running.
 
 ### 3. Run
 
@@ -97,6 +97,8 @@ python main.py
 ```
 
 The script opens a browser tab with the interactive map and prints the schedule to the console.
+
+> **Quick start with no setup:** the default coordinates point to a residential block in Oakland, CA.  Just run `python main.py` straight after installing dependencies — no `.env` needed.
 
 ## Configuration flags (top of `main.py`)
 
@@ -109,7 +111,7 @@ The script opens a browser tab with the interactive map and prints the schedule 
 | `MANUAL_LAT` / `MANUAL_LON` | `None` | Fixed fallback used when `USE_LIVE_GPS = False` (defaults to city/region centre) |
 | `PLOT` | `True` | Open the interactive map after each check |
 | `SEND_NOTIFICATION` | `False` | Email alert when sweeping is today or tomorrow |
-| `CHECK_INTERVAL_H` | `1` | Hours between checks (remove the `break` in main loop to run continuously) |
+| `CHECK_INTERVAL_H` | `1` | Hours between checks when running in a loop |
 
 ## Adding a city
 
