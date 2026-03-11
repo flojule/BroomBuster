@@ -1,29 +1,38 @@
-import requests, pyproj
+import requests
+import pyproj
 from geopy.geocoders import Nominatim
-from geopy.distance import geodesic
 import numpy as np
+import config
+
 
 def get_GPS_traccar():
-    # credentials and server
-    TRACCAR_URL = "https://demo4.traccar.org"
-    USERNAME = "florian.jule@gadz.org"
-    PASSWORD = "knJNUIU676GFYVuhjbhjvgh667"
+    """Fetch the latest position for the first registered Traccar device."""
+    if not config.TRACCAR_USERNAME or not config.TRACCAR_PASSWORD:
+        raise ValueError(
+            "Traccar credentials not set. "
+            "Export TRACCAR_USERNAME and TRACCAR_PASSWORD environment variables "
+            "or add them to a .env file."
+        )
 
     session = requests.Session()
 
-    # Authenticate
-    resp = session.post(f"{TRACCAR_URL}/api/session", data={"email": USERNAME, "password": PASSWORD})
+    resp = session.post(
+        f"{config.TRACCAR_URL}/api/session",
+        data={"email": config.TRACCAR_USERNAME, "password": config.TRACCAR_PASSWORD},
+    )
     resp.raise_for_status()
 
-    # Get devices
-    devices = session.get(f"{TRACCAR_URL}/api/devices").json()
-    device_id = devices[0]['id']  # Use first device
+    devices = session.get(f"{config.TRACCAR_URL}/api/devices").json()
+    if not devices:
+        raise RuntimeError("No devices found on Traccar account.")
+    device_id = devices[0]["id"]
 
-    # Get position
-    positions = session.get(f"{TRACCAR_URL}/api/positions").json()
+    positions = session.get(f"{config.TRACCAR_URL}/api/positions").json()
     position = next((p for p in positions if p["deviceId"] == device_id), None)
+    if position is None:
+        raise RuntimeError(f"No position available for device {device_id}.")
 
-    return position['latitude'], position['longitude'], position['fixTime']
+    return position["latitude"], position["longitude"], position["fixTime"]
 
 
 def get_street_info(myCar): # gets street from nearest address, problem at corners

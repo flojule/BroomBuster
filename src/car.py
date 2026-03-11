@@ -1,0 +1,55 @@
+import geopandas, shapely
+import gps
+from datetime import datetime
+
+
+class Car:
+    def __init__(self, lat=37.84609980886195, lon=-122.25964399184454):
+        self.name = 'my car'
+        # Street info — populated by get_info()
+        self.street_name = None
+        self.street_number = None
+        self.streets = []
+        self.set_location(lat, lon)
+
+    def set_location(self, lat, lon, time=None):
+        if time is None:
+            time = datetime.now()
+        self.lat = lat
+        self.lon = lon
+        self.time = time
+        self.set_gdf()
+
+    def get_GPS(self):
+        """Fetch latest position from Traccar and update location."""
+        lat, lon, time = gps.get_GPS_traccar()
+        self.set_location(lat, lon, time)
+
+    def get_info(self):
+        """Reverse-geocode current coordinates to get street name/number and nearby streets."""
+        try:
+            self.street_name, self.street_number = gps.get_street_info(self)
+        except Exception as e:
+            print(f"Warning: could not fetch street name — {e}")
+        try:
+            self.streets = gps.get_nearby_streets(self)
+        except Exception as e:
+            print(f"Warning: could not fetch nearby streets — {e}")
+
+    def set_gdf(self):
+        # WGS84 point (EPSG:4326, degrees)
+        self.gdf = geopandas.GeoDataFrame(
+            geometry=[shapely.Point(self.lon, self.lat)],
+            crs="EPSG:4326",
+        )
+        # Web Mercator (EPSG:3857, metres) — used for distance calculations
+        self.gdf_meters = self.gdf.to_crs("EPSG:3857")
+        self.x = self.gdf_meters.geometry.x[0]
+        self.y = self.gdf_meters.geometry.y[0]
+
+    def __str__(self):
+        addr = f"{self.street_number} {self.street_name}" if self.street_name else "unknown address"
+        return (
+            f"Car location: {self.lat:.5f}, {self.lon:.5f} — "
+            f"{addr} (at {self.time.strftime('%Y-%m-%d %H:%M')})"
+        )

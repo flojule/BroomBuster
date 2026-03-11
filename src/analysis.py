@@ -40,50 +40,66 @@ def check_street_sweeping(myCar, myCity):
 
     myCity = myCity.to_crs("EPSG:3857")
 
-    myStreetName, myNumber = gps.get_street_info(myCar)
-    myStreets_ = gps.get_nearby_streets(myCar)
-    myStreets = [item[0] for item in myStreets_]
+    # Use cached street info if get_info() was already called; otherwise fetch now
+    if getattr(myCar, "street_name", None) and getattr(myCar, "streets", None):
+        myStreetName = myCar.street_name
+        myNumber     = myCar.street_number
+        myStreets    = [item[0] for item in myCar.streets]
+    else:
+        myStreetName, myNumber = gps.get_street_info(myCar)
+        myStreets_ = gps.get_nearby_streets(myCar)
+        myStreets  = [item[0] for item in myStreets_]
 
-    schedule = set()
-    if myStreetName == myStreets[0]:
-        for i, street_section in myCity.iterrows():
-            if street_section['NAME'] and street_section['TYPE']:
-                street_section_name = street_section['NAME'].lower() + ' ' + street_section['TYPE'].lower()
-                if myStreetName.lower().startswith(street_section_name):
-                    if street_section['L_F_ADD'] and street_section['L_T_ADD'] and street_section['R_F_ADD'] and street_section['R_T_ADD']:
-                        if myNumber:
-                            L_F_ADD = int(street_section['L_F_ADD'])
-                            L_T_ADD = int(street_section['L_T_ADD'])
-                            R_F_ADD = int(street_section['R_F_ADD'])
-                            R_T_ADD = int(street_section['R_T_ADD'])
-                            if (myNumber > L_F_ADD and myNumber < L_T_ADD) or (myNumber > R_F_ADD and myNumber < R_T_ADD):
-                                schedule.add(get_schedule(street_section, myNumber))
-                        else:
-                            for i in range(0,2):
-                                schedule.add(get_schedule(street_section, i))
-                            
+    schedule_even = set()
+    schedule_odd  = set()
+
+    def _collect(street_section):
+        """Add both side schedules from a matching street section."""
+        e = get_schedule(street_section, 0)  # even
+        o = get_schedule(street_section, 1)  # odd
+        if e:
+            schedule_even.add(e)
+        if o:
+            schedule_odd.add(o)
+
+    if myStreets and myStreetName == myStreets[0]:
+        for _, street_section in myCity.iterrows():
+            if _is_str(street_section.get("STREET_NAME")):
+                sec_name = street_section["STREET_NAME"].lower()
+                if myStreetName.lower().startswith(sec_name):
+                    l_f = _safe_int(street_section.get("L_F_ADD"))
+                    l_t = _safe_int(street_section.get("L_T_ADD"))
+                    r_f = _safe_int(street_section.get("R_F_ADD"))
+                    r_t = _safe_int(street_section.get("R_T_ADD"))
+                    if l_f is not None and l_t is not None and r_f is not None and r_t is not None:
+                        if myNumber and (l_f < myNumber < l_t or r_f < myNumber < r_t):
+                            _collect(street_section)
                     else:
+                        _collect(street_section)
 
-                        for i in range(0,2):
-                            schedule.add(get_schedule(street_section, i))
-    
-    elif myStreetName == myStreets[1]:
+    elif myStreets and len(myStreets) > 1 and myStreetName == myStreets[1]:
         myActualStreet = myStreets[0]
-        for i, street_section in myCity.iterrows():
-            if street_section['NAME'] and street_section['TYPE']:
-                street_section_name = street_section['NAME'].lower() + ' ' + street_section['TYPE'].lower()
-                if myActualStreet.lower().startswith(street_section_name):
-                    for i in range(0,2):
-                        schedule.add(get_schedule(street_section, i))
+        for _, street_section in myCity.iterrows():
+            if _is_str(street_section.get("STREET_NAME")):
+                sec_name = street_section["STREET_NAME"].lower()
+                if myActualStreet.lower().startswith(sec_name):
+                    _collect(street_section)
 
     else:
         print(myStreetName, myStreets)
 
-    schedule = list(schedule)
+    # Car side is determined by address parity
+    if myNumber and myNumber % 2 == 0:
+        schedule = list(schedule_even)
+    else:
+        schedule = list(schedule_odd)
+
+    schedule_even = list(schedule_even)
+    schedule_odd  = list(schedule_odd)
 
     message = notification.compose_message(myStreetName, myNumber, myStreets, schedule)
 
-    return schedule, message
+    return schedule, schedule_even, schedule_odd, message
 
 def check_day_street_sweeping(schedule):
 
@@ -104,19 +120,36 @@ def check_day_street_sweeping(schedule):
         return False
             
             
+def _is_str(v):
+    """True only for non-empty strings (filters NaN, None, floats)."""
+    return isinstance(v, str) and v.strip() != ""
+
+
+def _safe_int(v):
+    """Parse a value as int, returning None on failure (handles NaN)."""
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return None
+
+
 def get_schedule(street_section, myNumber):
-    if myNumber %2 == 0:
-        if street_section['DAY_EVEN']:
-            schedule_days = street_section['DAY_EVEN']
-            schedule_desc = street_section['DescDayEve']
-            schedule_time = street_section['DescTimeEv']
-            return schedule_days, schedule_desc, schedule_time
+    if myNumber % 2 == 0:
+        code = street_section.get("DAY_EVEN")
+        if _is_str(code):
+            return (
+                code,
+                street_section.get("DESC_EVEN") or "",
+                street_section.get("TIME_EVEN") or "",
+            )
     else:
-        if street_section['DAY_ODD']:
-            schedule_days = street_section['DAY_ODD']
-            schedule_desc = street_section['DescDayOdd']
-            schedule_time = street_section['DescTimeOd']
-            return schedule_days, schedule_desc, schedule_time
+        code = street_section.get("DAY_ODD")
+        if _is_str(code):
+            return (
+                code,
+                street_section.get("DESC_ODD") or "",
+                street_section.get("TIME_ODD") or "",
+            )
         
 
 def get_all_dates_for_weekday(weekday):

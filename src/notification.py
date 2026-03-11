@@ -1,40 +1,30 @@
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import config
 
-def send_email(message): # add timing
 
-    # Sender and receiver info
-    sender_email = "florian.jule@gadz.org"
-    receiver_email = "florian.jule@gadz.org"
-    password = "fdbxhbutntmzdqvq"
+def send_email(message):
+    """Send a street-sweeping notification email using credentials from config/env."""
+    if not config.EMAIL_SENDER or not config.EMAIL_PASSWORD:
+        print("Email credentials not configured — skipping notification.")
+        return
 
-    # Email content
-    # for content in message:
-    #     street = 
-    street = ''
-    schedule = ''
-    subject = "Street parking"
-    body = message
-
-    # Set up MIME
     msg = MIMEMultipart()
-    msg['From'] = sender_email
-    msg['To'] = receiver_email
-    msg['Subject'] = subject
+    msg["From"]    = config.EMAIL_SENDER
+    msg["To"]      = config.EMAIL_RECEIVER or config.EMAIL_SENDER
+    msg["Subject"] = "Street parking alert"
+    msg.attach(MIMEText(message, "plain"))
 
-    msg.attach(MIMEText(body, 'plain'))
-
-    # Send email via Gmail's SMTP server
     try:
-        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server = smtplib.SMTP("smtp.gmail.com", 587)
         server.starttls()
-        server.login(sender_email, password)
+        server.login(config.EMAIL_SENDER, config.EMAIL_PASSWORD)
         server.send_message(msg)
         server.quit()
-        print("Email sent successfully!")
+        print("Notification email sent.")
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Failed to send email: {e}")
 
 def compose_message(myStreetName, myNumber, myStreets, schedule):
 
