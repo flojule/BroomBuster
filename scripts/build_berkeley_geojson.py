@@ -12,7 +12,6 @@ Requires:
     pip install pdfplumber geopandas shapely requests
 """
 
-import calendar
 import datetime
 import pathlib
 import re
@@ -22,7 +21,6 @@ import geopandas
 import pdfplumber
 import requests
 from shapely.geometry import LineString, mapping
-
 
 # ---------------------------------------------------------------------------
 # Schedule encoding helpers

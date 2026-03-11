@@ -1,5 +1,9 @@
-import gps, notification
-import calendar, re, datetime
+import calendar
+import datetime
+import re
+
+import gps
+import notification
 
 # Street-type suffixes to strip before name comparison so "CHESTNUT ST" matches
 # a segment stored as "CHESTNUT" (or vice-versa).
@@ -107,7 +111,7 @@ def check_street_sweeping(myCar, myCity):
     # Zone/polygon fallback — for area-based datasets like Chicago ward sections.
     # If no schedule was found above, test whether the car sits inside a zone polygon.
     if not schedule_even and not schedule_odd:
-        from shapely.geometry import Point, Polygon, MultiPolygon
+        from shapely.geometry import MultiPolygon, Point, Polygon
         if any(
             isinstance(g, (Polygon, MultiPolygon))
             for g in myCity.geometry
@@ -153,8 +157,8 @@ def check_day_street_sweeping(schedule):
     else:
         print('No sweeping today or tomorrow\n')
         return False
-            
-            
+
+
 def _is_str(v):
     """True only for non-empty strings (filters NaN, None, floats)."""
     return isinstance(v, str) and v.strip() != ""
@@ -185,7 +189,7 @@ def get_schedule(street_section, myNumber):
                 street_section.get("DESC_ODD") or "",
                 street_section.get("TIME_ODD") or "",
             )
-        
+
 
 def get_all_dates_for_weekday(weekday, year, month):
     """Get all dates in a month for a specific weekday."""

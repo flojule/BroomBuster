@@ -1,10 +1,12 @@
-import gps
 from datetime import datetime
+
+import gps
 
 
 class Car:
     def __init__(self, lat=37.84609980886195, lon=-122.25964399184454):
         self.name = 'my car'
+        self._city: str | None = None  # set after construction in main.py
         # Street info — populated by get_info()
         self.street_name = None
         self.street_number = None

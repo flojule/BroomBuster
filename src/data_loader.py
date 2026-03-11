@@ -35,7 +35,6 @@ from shapely.geometry import box as _shapely_box
 
 from cities import CITIES
 
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -78,6 +77,7 @@ def load_region_data(region_key: str) -> geopandas.GeoDataFrame:
     gets a ``_city`` column with the source city key.
     """
     import pandas as pd
+
     from cities import REGIONS
 
     region = REGIONS[region_key]

@@ -1,4 +1,8 @@
-import car, maps, notification, analysis, data_loader
+import analysis
+import car
+import data_loader
+import maps
+import notification
 from cities import CITIES, REGIONS
 
 # ---------------------------------------------------------------------------
@@ -86,7 +90,9 @@ if __name__ == "__main__":
         print(myCar)
 
         # 4. Analyse street-sweeping schedule for the car's current block
-        schedule, schedule_even, schedule_odd, message = analysis.check_street_sweeping(myCar, myCity)
+        schedule, schedule_even, schedule_odd, message = analysis.check_street_sweeping(
+            myCar, myCity
+        )
         print(message)
 
         # 5. Show interactive map with car position and schedule info

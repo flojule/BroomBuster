@@ -1,7 +1,8 @@
-import requests
-import pyproj
-from geopy.geocoders import Nominatim
 import numpy as np
+import pyproj
+import requests
+from geopy.geocoders import Nominatim
+
 import config
 
 _TRANSFORMER = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
@@ -54,7 +55,7 @@ def get_street_info(myCar): # gets street from nearest address, problem at corne
     return myStreetName, myNumber
 
 def get_nearby_streets(myCar):
-    
+
     point = _TRANSFORMER.transform(myCar.lon, myCar.lat)
     radius = 100
 
@@ -89,7 +90,12 @@ def get_nearby_streets(myCar):
 def get_distance_point_line(point, point1, point2): # input gps coord
 
     d12 = np.sqrt((point2[1] - point1[1])**2 + (point2[0] - point1[0])**2)
-    area = np.abs((point2[1]-point1[1])*point[0] - (point2[0]-point1[0])*point[1] + point2[0]*point1[1] - point2[1]*point1[0])
+    area = np.abs(
+        (point2[1] - point1[1]) * point[0]
+        - (point2[0] - point1[0]) * point[1]
+        + point2[0] * point1[1]
+        - point2[1] * point1[0]
+    )
     distance = float(area / d12)
 
     return distance

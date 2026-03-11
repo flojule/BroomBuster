@@ -1,9 +1,9 @@
-import plotly.graph_objects as go
-import shapely
 from datetime import date, timedelta
 
-import analysis as _analysis
+import plotly.graph_objects as go
+import shapely
 
+import analysis as _analysis
 
 # ---------------------------------------------------------------------------
 # Helpers
