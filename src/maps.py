@@ -131,7 +131,9 @@ def _fmt_schedule(entries, label, highlight=False):
     for entry in valid:
         key = (entry[1], entry[2])
         if key not in seen:
-            parts.append(f"{entry[1]} \u2014 {entry[2]}")
+            t = entry[2]
+            body = entry[1] if not t else f"{entry[1]} \u2014 {t}"
+            parts.append(body)
             seen.add(key)
     return f"{bold_label} {' / '.join(parts)}"
 
@@ -173,30 +175,47 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
 
     myCity_ = myCity.to_crs("EPSG:4326")
 
-    # Bucket street segments by colour so each colour is a single trace.
-    # Two-pass deduplication: pass 1 finds the highest-urgency colour for each
-    # unique segment; pass 2 renders only that colour, once per segment.
-    # This prevents duplicate lines when SF/Oakland have multiple rows for the
-    # same block (e.g. one row per sweep day).
     COLORS    = ("tomato", "orange", "cornflowerblue")
     _PRIORITY = {"tomato": 2, "orange": 1, "cornflowerblue": 0}
-    buckets   = {c: {"lats": [], "lons": [], "texts": []} for c in COLORS}
 
-    def _seg_key(x, y):
-        return frozenset({
-            (round(x[0], 5), round(y[0], 5)),
-            (round(x[-1], 5), round(y[-1], 5)),
-        })
+    color_meta = {
+        "tomato":         ("Sweeping today",    5.0),
+        "orange":         ("Sweeping tomorrow", 2.5),
+        "cornflowerblue": ("No sweeping soon",  1.5),
+    }
 
-    # Pass 1: determine the best (highest) priority for each segment key
-    best_pri_per_key: dict = {}
-    for _, row in myCity_.iterrows():
-        pri = _PRIORITY[_sweeping_color(row)]
-        for x, y in _geom_lines(row["geometry"]):
-            x, y = list(x), list(y)
-            k = _seg_key(x, y)
-            if pri > best_pri_per_key.get(k, -1):
-                best_pri_per_key[k] = pri
+    # Semi-transparent fill palettes for polygon (zone) data — each urgency
+    # level gets several shades so adjacent zones are visually distinct.
+    _POLY_FILLS = {
+        "tomato": [
+            "rgba(255,80,60,0.38)",
+            "rgba(210,40,30,0.38)",
+            "rgba(255,120,90,0.38)",
+            "rgba(190,30,20,0.38)",
+            "rgba(240,70,50,0.38)",
+        ],
+        "orange": [
+            "rgba(255,160,0,0.45)",
+            "rgba(230,120,0,0.45)",
+            "rgba(255,190,40,0.45)",
+            "rgba(200,100,0,0.45)",
+            "rgba(255,145,20,0.45)",
+        ],
+        "cornflowerblue": [
+            "rgba(100,149,237,0.28)",
+            "rgba(65,120,180,0.28)",
+            "rgba(135,190,220,0.28)",
+            "rgba(155,170,210,0.28)",
+            "rgba(80,140,200,0.28)",
+        ],
+    }
+    _POLY_BORDER = {
+        "tomato":         "rgba(160,40,20,0.85)",
+        "orange":         "rgba(180,90,0,0.85)",
+        "cornflowerblue": "rgba(50,90,170,0.65)",
+    }
+
+    _POLY_TYPES = (shapely.geometry.Polygon, shapely.geometry.MultiPolygon)
 
     def _hover_side(desc, time, label):
         """Format one side of the hover: omit time if already in the description."""
@@ -204,10 +223,91 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
         body = d if (t in ("N/A", "") or t in d) else f"{d} \u2014 {t}"
         return f"{label}: {body}"
 
-    # Pass 2: render each segment at its best colour, exactly once
+    def _zone_hover(row):
+        return (
+            f"<b>{_safe(row.get('STREET_NAME'))}</b><br>"
+            + _hover_side(row.get("DESC_EVEN"), row.get("TIME_EVEN"), "Sweeping") + "<br>"
+        )
+
+    # -----------------------------------------------------------------------
+    # Polygon zone rendering  (e.g. Chicago ward sections)
+    # Each zone is a filled polygon; shade varies by ward/section identity so
+    # neighbouring zones are visually distinct within the same urgency class.
+    # -----------------------------------------------------------------------
+    # poly_buckets: (fill_rgba, border_rgba, urgency) -> {lats, lons, texts}
+    poly_buckets: dict = {}
+    poly_legend_added: set = set()
+    # Centroid markers enable hover anywhere inside a polygon (not just on edge)
+    c_lats, c_lons, c_texts = [], [], []
+
+    for _, row in myCity_.iterrows():
+        geom = row["geometry"]
+        if not hasattr(geom, "is_empty") or geom.is_empty:
+            continue
+        if not isinstance(geom, _POLY_TYPES):
+            continue
+
+        color = _sweeping_color(row)
+        fills = _POLY_FILLS[color]
+        # Deterministic shade index from ward + section numbers
+        try:
+            w = int(float(row.get("ward_id") or row.get("ward") or 0))
+            s = int(float(row.get("section_id") or row.get("section") or 0))
+        except (TypeError, ValueError):
+            w, s = 0, 0
+        fill_color   = fills[(w * 100 + s) % len(fills)]
+        border_color = _POLY_BORDER[color]
+        key = (fill_color, border_color, color)
+        if key not in poly_buckets:
+            poly_buckets[key] = {"lats": [], "lons": [], "texts": []}
+
+        hover = _zone_hover(row)
+        for x, y in _geom_lines(geom):
+            xs, ys = list(x), list(y)
+            poly_buckets[key]["lats"].extend(ys + [None])
+            poly_buckets[key]["lons"].extend(xs + [None])
+            poly_buckets[key]["texts"].extend([hover] * len(xs) + [None])
+
+        # Centroid for reliable interior hover
+        centroid = geom.centroid
+        c_lats.append(centroid.y)
+        c_lons.append(centroid.x)
+        c_texts.append(hover)
+
+    # -----------------------------------------------------------------------
+    # Line street rendering  (Oakland / SF — two-pass dedup)
+    # -----------------------------------------------------------------------
+    buckets = {c: {"lats": [], "lons": [], "texts": []} for c in COLORS}
+
+    def _seg_key(x, y):
+        return frozenset({
+            (round(x[0], 5), round(y[0], 5)),
+            (round(x[-1], 5), round(y[-1], 5)),
+        })
+
+    # Pass 1: best priority per segment key (line geometries only)
+    best_pri_per_key: dict = {}
+    for _, row in myCity_.iterrows():
+        geom = row["geometry"]
+        if not hasattr(geom, "is_empty") or geom.is_empty:
+            continue
+        if isinstance(geom, _POLY_TYPES):
+            continue
+        pri = _PRIORITY[_sweeping_color(row)]
+        for x, y in _geom_lines(geom):
+            x, y = list(x), list(y)
+            k = _seg_key(x, y)
+            if pri > best_pri_per_key.get(k, -1):
+                best_pri_per_key[k] = pri
+
+    # Pass 2: render each line segment at its best colour, exactly once
     rendered_keys: set = set()
     for _, row in myCity_.iterrows():
         geom  = row["geometry"]
+        if not hasattr(geom, "is_empty") or geom.is_empty:
+            continue
+        if isinstance(geom, _POLY_TYPES):
+            continue
         color = _sweeping_color(row)
         pri   = _PRIORITY[color]
         hover = (
@@ -219,22 +319,50 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
             x, y = list(x), list(y)
             k = _seg_key(x, y)
             if pri < best_pri_per_key.get(k, 0):
-                continue          # a more urgent colour applies to this segment
+                continue
             if k in rendered_keys:
-                continue          # already plotted this geometry
+                continue
             rendered_keys.add(k)
             dx, dy = _densify(x, y)
             buckets[color]["lats"].extend(dy + [None])
             buckets[color]["lons"].extend(dx + [None])
             buckets[color]["texts"].extend([hover] * len(dx) + [None])
 
+    # -----------------------------------------------------------------------
+    # Build figure — polygons first (behind) then lines then markers
+    # -----------------------------------------------------------------------
     fig = go.Figure()
 
-    color_meta = {
-        "tomato":         ("Sweeping today",    5.0),
-        "orange":         ("Sweeping tomorrow", 2.5),
-        "cornflowerblue": ("No sweeping soon",  1.5),
-    }
+    # -- Polygon zone fills --
+    for (fill_color, border_color, urgency), b in poly_buckets.items():
+        label, _ = color_meta[urgency]
+        show_legend = urgency not in poly_legend_added
+        if show_legend:
+            poly_legend_added.add(urgency)
+        fig.add_trace(go.Scattermapbox(
+            lat=b["lats"], lon=b["lons"],
+            mode="lines",
+            fill="toself",
+            fillcolor=fill_color,
+            line=dict(width=1.5, color=border_color),
+            hoverinfo="text", text=b["texts"],
+            name=label,
+            showlegend=show_legend,
+        ))
+
+    # Invisible centroid markers so hover fires anywhere inside each zone
+    if c_lats:
+        fig.add_trace(go.Scattermapbox(
+            lat=c_lats, lon=c_lons,
+            mode="markers",
+            marker=dict(size=40, opacity=0),
+            hoverinfo="text", text=c_texts,
+            hoverlabel=dict(bgcolor="white", bordercolor="#aaa",
+                            font=dict(color="black")),
+            showlegend=False,
+        ))
+
+    # -- Line street traces --
     for color in COLORS:
         b = buckets[color]
         if not b["lats"]:

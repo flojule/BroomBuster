@@ -73,26 +73,26 @@ CITIES = {
     "chicago_edgewater": {
         "name": "Chicago – Edgewater, IL",
         "center": {"lat": 41.9952, "lon": -87.6597},
-        "manual_default": {"lat": 41.9952, "lon": -87.6597},
+        # Near 6321 N Glenwood Ave, Chicago (Edgewater)
+        "manual_default": {"lat": 41.9951, "lon": -87.6593},
         "local_path": "data/chicago/StreetSweepingZones.geojson",
         # Zone geometry \u2014 Chicago Data Portal \u201cStreet Sweeping Zones\u201d GeoJSON export.
         # Dataset ID 52z7-wvp2 is the 2025 edition.  Update the ID in both
         # 'url' and 'schedule_url' each year once the new datasets are
         # published at data.cityofchicago.org (search \"Street Sweeping\").
         # Delete data/chicago/StreetSweepingZones.geojson to force a re-download.
+        # Dataset utb4-q645 is the 2025 zones — includes polygon geometry AND
+        # the sweeping schedule embedded as month columns (april..november).
+        # The map-view sibling 52z7-wvp2 has no geometry; always use the
+        # tabular dataset.  Update both IDs each year once new data is published
+        # (typically March/April) at data.cityofchicago.org.
         "url": (
-            "https://data.cityofchicago.org/api/geospatial/52z7-wvp2"
-            "?method=export&type=GeoJSON"
-        ),
-        # Sweeping schedule \u2014 Socrata JSON API, fetched live (no local file needed).
-        # Dataset ID a2xx-z2ja is the 2025 schedule.  Rows: ward_section + dates.
-        "schedule_url": (
-            "https://data.cityofchicago.org/resource/a2xx-z2ja.json"
+            "https://data.cityofchicago.org/resource/utb4-q645.geojson"
             "?$limit=50000"
         ),
         "schema": "chicago",
-        # Bounding box keeps only the Edgewater neighbourhood
-        "bbox": [41.970, -87.675, 42.010, -87.640],
+        # Bounding box: Edgewater – Rogers Park area (Wards 40, 48, 49 + neighbours)
+        "bbox": [41.960, -87.700, 42.020, -87.630],
     },
 }
 
@@ -106,12 +106,14 @@ REGIONS = {
         "cities": ["oakland", "san_francisco", "berkeley", "alameda"],
         # Wider center / zoom used for the overview inset only
         "center": {"lat": 37.820, "lon": -122.295},
+        "manual_default": {"lat": 37.821326, "lon": -122.280705},
         "overview_zoom": 9,
     },
     "chicago": {
         "name": "Chicago",
         "cities": ["chicago_edgewater"],
-        "center": {"lat": 41.9952, "lon": -87.6597},
+        "center": {"lat": 41.997, "lon": -87.6650},
+        "manual_default": {"lat": 41.997024, "lon": -87.6650475},
         "overview_zoom": 11,
     },
 }

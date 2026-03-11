@@ -9,7 +9,7 @@ import time
 
 # Regional mode: load all cities in a region together.
 # Available regions: "bay_area", "chicago"  (see src/cities.py → REGIONS)
-REGION = "bay_area"
+REGION = "chicago"
 
 # Set SINGLE_CITY_MODE = True to load only the city named in CITY below.
 # Useful while developing or when other cities' data files aren't available yet.
@@ -23,10 +23,12 @@ CITY = "oakland"
 # Set USE_LIVE_GPS = False to use fixed manual coordinates defined below.
 USE_LIVE_GPS = False
 
-# Manual location override (defaults to city / region center when None).
-# Set to your car's position to override. Oakland example kept as default:
-MANUAL_LAT = 37.821326
-MANUAL_LON = -122.280705
+# Manual location override (uses region manual_default when None).
+# Set to your car's position to override.
+# bay_area example: 37.821326, -122.280705  (2931 Chestnut St, Oakland)
+# chicago example:  41.9951,   -87.6593     (near 6321 N Glenwood Ave)
+MANUAL_LAT = None
+MANUAL_LON = None
 
 PLOT              = True   # Open an interactive map in the browser
 SEND_NOTIFICATION = False  # Send an email when sweeping is today or tomorrow
@@ -45,8 +47,9 @@ if __name__ == "__main__":
     else:
         region_cfg  = REGIONS[REGION]
         myCity      = data_loader.load_region_data(REGION)
-        default_lat = region_cfg["center"]["lat"]
-        default_lon = region_cfg["center"]["lon"]
+        _rdefault   = region_cfg.get("manual_default", region_cfg["center"])
+        default_lat = _rdefault["lat"]
+        default_lon = _rdefault["lon"]
 
     lat = MANUAL_LAT if MANUAL_LAT is not None else default_lat
     lon = MANUAL_LON if MANUAL_LON is not None else default_lon

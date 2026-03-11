@@ -39,7 +39,9 @@ def compose_message(schedule_even, schedule_odd, car_side):
         for entry in valid:
             key = (entry[1], entry[2])
             if key not in seen:
-                parts.append(f"{entry[1]} \u2014 {entry[2]}")
+                t = entry[2]
+                body = entry[1] if not t else f"{entry[1]} \u2014 {t}"
+                parts.append(body)
                 seen.add(key)
         return f"{prefix} {label}: {' / '.join(parts)}"
 

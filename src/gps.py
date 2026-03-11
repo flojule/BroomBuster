@@ -43,7 +43,14 @@ def get_street_info(myCar): # gets street from nearest address, problem at corne
     # Get address
     location = geolocator.reverse((myCar.lat, myCar.lon), exactly_one=True)
     myStreetName = location.raw['address'].get('road')
-    myNumber = int(location.raw['address'].get('house_number'))
+    raw_num = location.raw['address'].get('house_number')
+    myNumber = None
+    if raw_num:
+        # house_number can be a range like "6321-6323"; take the first number
+        try:
+            myNumber = int(raw_num.split("-")[0].strip())
+        except (ValueError, TypeError):
+            pass
 
     return myStreetName, myNumber
 
@@ -64,7 +71,10 @@ def get_nearby_streets(myCar):
 
     url = "https://overpass-api.de/api/interpreter"
     response = requests.post(url, data={'data': query})
-    data = response.json()
+    try:
+        data = response.json()
+    except Exception:
+        data = {"elements": []}
 
     myStreets = []
     for road in data['elements']:

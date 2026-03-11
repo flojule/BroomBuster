@@ -48,7 +48,11 @@ class Car:
         self.y = self.gdf_meters.geometry.y[0]
 
     def __str__(self):
-        addr = f"{self.street_number} {self.street_name}" if self.street_name else "unknown address"
+        if self.street_name:
+            num = f"{self.street_number} " if self.street_number else ""
+            addr = f"{num}{self.street_name}"
+        else:
+            addr = "unknown address"
         return (
             f"Car location: {self.lat:.5f}, {self.lon:.5f} — "
             f"{addr} (at {self.time.strftime('%Y-%m-%d %H:%M')})"

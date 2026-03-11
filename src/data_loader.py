@@ -301,102 +301,94 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 
 def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     """
-    Chicago normaliser: joins the Ward-Section zone polygons (from the
-    geospatial export) with the sweeping schedule (fetched live from the
-    Socrata JSON API).  No manual download is needed.
+    Chicago normaliser for the 2025+ schema (dataset utb4-q645).
+
+    The zones GeoJSON embeds the sweeping schedule directly as month columns
+    (april, may, …, november), each containing comma-separated day numbers.
+    No separate schedule API call is needed.
 
     Chicago publishes new datasets each year (typically March/April).
-    Update the 'url' and 'schedule_url' IDs in cities.py when that happens.
+    Update the 'url' ID in cities.py when that happens.
     """
     import datetime as _dt
-    from collections import defaultdict
-    from cities import CITIES as _cit
 
-    # ------------------------------------------------------------------
-    # 1. Fetch the sweeping schedule from the Socrata API
-    # ------------------------------------------------------------------
-    schedule_url = _cit["chicago_edgewater"].get("schedule_url")
-    sched_by_ws: dict = defaultdict(list)
-    if schedule_url:
-        print("  Fetching Chicago schedule from Socrata API...")
-        resp = requests.get(schedule_url, timeout=60)
-        resp.raise_for_status()
-        for row in resp.json():
-            ws = str(row.get("ward_section_concatenated", "")).zfill(4)
-            try:
-                month_n = int(row.get("month_number", 0))
-            except (TypeError, ValueError):
-                continue
-            dates_csv = str(row.get("dates", "")).strip()
-            if ws and month_n and dates_csv:
-                sched_by_ws[ws].append((month_n, dates_csv))
-
-    # ------------------------------------------------------------------
-    # 2. Detect ward / section columns in the zones GeoDataFrame
-    # ------------------------------------------------------------------
-    c = {col.lower(): col for col in gdf.columns}
-
-    def _col(*alts):
-        for n in alts:
-            if n in c:
-                return c[n]
-        return None
-
-    ws_col   = _col("ward_section_concatenated", "wardsection",
-                    "ward_section", "ws_concat")
-    ward_col = _col("ward", "ward_no", "wardno")
-    sect_col = _col("section", "section_no", "sectionno", "sect")
-
-    def _ws_key(row):
-        if ws_col and ws_col in row.index:
-            return str(row[ws_col]).zfill(4)
-        if ward_col and sect_col:
-            return (
-                str(row.get(ward_col, "")).zfill(2)
-                + str(row.get(sect_col, "")).zfill(2)
-            )
-        return ""
-
-    # ------------------------------------------------------------------
-    # 3. Build schedule strings for each zone
-    # ------------------------------------------------------------------
-    today_year = _dt.date.today().year
-    month_abbr = {
-        1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr",
-        5: "May", 6: "Jun", 7: "Jul", 8: "Aug",
-        9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec",
+    MONTHS = {
+        "april": 4, "may": 5, "june": 6, "july": 7,
+        "august": 8, "september": 9, "october": 10, "november": 11,
     }
+    MONTH_ABBR = {
+        4: "Apr", 5: "May", 6: "Jun", 7: "Jul",
+        8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov",
+    }
+    today_year = _dt.date.today().year
 
-    def _build_schedule(month_days_list):
-        """Return (dates_code, human_desc) from [(month_n, days_csv), ...]."""
+    # Normalise column names to lowercase for consistent access.
+    out = gdf.copy()
+    out.columns = [c.lower() for c in out.columns]
+
+    def _build_schedule(row):
         iso_parts, desc_parts = [], []
-        for m, days_csv in sorted(month_days_list):
-            for d_str in days_csv.split(","):
-                d_str = d_str.strip()
+        for col, m in MONTHS.items():
+            val = str(row.get(col, "") or "").strip()
+            if not val:
+                continue
+            valid_days = []
+            for d in val.split(","):
+                d = d.strip()
                 try:
-                    iso_parts.append(
-                        _dt.date(today_year, m, int(d_str)).isoformat()
+                    valid_days.append(
+                        _dt.date(today_year, m, int(d)).isoformat()
                     )
                 except (ValueError, TypeError):
                     pass
-            desc_parts.append(f"{month_abbr.get(m, str(m))} {days_csv}")
-        code = f"DATES:{','.join(iso_parts)}" if iso_parts else None
-        desc = "; ".join(desc_parts) or None
+            if valid_days:
+                iso_parts.extend(valid_days)
+                desc_parts.append((m, MONTH_ABBR[m], val))
+        if not iso_parts:
+            return None, None
+        code = f"DATES:{','.join(iso_parts)}"
+        # Build DESC: show every date that falls within the next 2 months
+        # that have sweeping (typically 4 dates, e.g. "Apr 17, 18; May 15, 16").
+        today = _dt.date.today()
+        future_months: list = []
+        for ds in sorted(iso_parts):
+            d = _dt.date.fromisoformat(ds)
+            if d >= today and (d.year, d.month) not in future_months:
+                future_months.append((d.year, d.month))
+        target_months = set(future_months[:2])
+        shown: dict = {}
+        for ds in sorted(iso_parts):
+            d = _dt.date.fromisoformat(ds)
+            if (d.year, d.month) in target_months:
+                shown.setdefault(d.month, []).append(str(d.day))
+        if not shown:
+            # Off-season: show first 2 months' dates
+            first_months: list = []
+            for ds in sorted(iso_parts):
+                d = _dt.date.fromisoformat(ds)
+                if (d.year, d.month) not in first_months:
+                    first_months.append((d.year, d.month))
+            for ds in sorted(iso_parts):
+                d = _dt.date.fromisoformat(ds)
+                if (d.year, d.month) in set(first_months[:2]):
+                    shown.setdefault(d.month, []).append(str(d.day))
+        desc = "; ".join(
+            f"{MONTH_ABBR[m]} {', '.join(days)}"
+            for m, days in sorted(shown.items())
+        )
         return code, desc
 
-    out = gdf.copy()
     day_codes, descs, names = [], [], []
     for _, row in out.iterrows():
-        ws = _ws_key(row)
-        code, desc = _build_schedule(sched_by_ws.get(ws, []))
+        code, desc = _build_schedule(row)
         day_codes.append(code)
         descs.append(desc)
-        w = str(row.get(ward_col, "?") if ward_col else "?").zfill(2)
-        s = str(row.get(sect_col, "?") if sect_col else "?").zfill(2)
+        w = str(row.get("ward", "?")).zfill(2)
+        s = str(row.get("section", "?")).zfill(2)
         names.append(f"Ward {w}, Section {s}")
 
     out["STREET_NAME"] = names
-    out["DAY_EVEN"]    = day_codes   # same zone-wide schedule for both sides
+    out["DAY_EVEN"]    = day_codes
     out["DAY_ODD"]     = day_codes
     out["DESC_EVEN"]   = descs
     out["DESC_ODD"]    = descs
