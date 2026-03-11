@@ -86,7 +86,27 @@ def check_street_sweeping(myCar, myCity):
                     _collect(street_section)
 
     else:
-        print(myStreetName, myStreets)
+        pass  # no segment match; zone fallback below covers area-based data
+
+    # Zone/polygon fallback — for area-based datasets like Chicago ward sections.
+    # If no schedule was found above, test whether the car sits inside a zone polygon.
+    if not schedule_even and not schedule_odd:
+        from shapely.geometry import Point, Polygon, MultiPolygon
+        if any(
+            isinstance(g, (Polygon, MultiPolygon))
+            for g in myCity.geometry
+            if g is not None
+        ):
+            import pyproj as _pyproj
+            _xfm = _pyproj.Transformer.from_crs(
+                "EPSG:4326", "EPSG:3857", always_xy=True
+            )
+            car_x, car_y = _xfm.transform(myCar.lon, myCar.lat)
+            car_pt = Point(car_x, car_y)
+            for _, row in myCity.iterrows():
+                g = row.geometry
+                if g is not None and not g.is_empty and g.contains(car_pt):
+                    _collect(row)
 
     # Car side is determined by address parity
     if myNumber and myNumber % 2 == 0:
@@ -167,6 +187,14 @@ def get_weekdays_by_ordinal(weekday, ordinals):
     return [dates[i - 1] for i in ordinals if i <= len(dates)]
 
 def parse_sweeping_code(code):
+    # Chicago-style explicit date list: "DATES:2026-04-01,2026-04-02,..."
+    if code.upper().startswith("DATES:"):
+        return [
+            datetime.date.fromisoformat(ds.strip())
+            for ds in code[6:].split(",")
+            if ds.strip()
+        ]
+
     code = code.upper()
 
     # Handle compound sweep codes

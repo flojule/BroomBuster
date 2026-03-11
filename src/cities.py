@@ -1,24 +1,22 @@
 """
 City configurations for street-sweeping data.
 
-Each key maps to a dict with:
+Each entry defines:
   name            Display name shown in the UI
   center          Default map center (lat/lon)
   manual_default  Fallback coordinates used when USE_LIVE_GPS = False
   local_path      Where the data file is cached on disk (relative to repo root)
-  url             Download URL; None means the file must be present already
+  url             Download URL; None = file must be placed manually
   schema          Normalization schema key (handled by data_loader.py)
   bbox            Optional [lat_min, lon_min, lat_max, lon_max] clip after load
 
-Adding a new city:
-  1. Obtain a GIS file (Shapefile or GeoJSON) with street segments and
-     sweeping-schedule columns.
-  2. Add an entry below.
-  3. Implement a _normalise_<schema> function in data_loader.py that maps
-     the city's columns to the standard schema (see data_loader.py header).
+REGIONS groups cities geographically so the app can load several at once.
 """
 
 CITIES = {
+    # ------------------------------------------------------------------
+    # Bay Area
+    # ------------------------------------------------------------------
     "oakland": {
         "name": "Oakland, CA",
         "center": {"lat": 37.8044, "lon": -122.2712},
@@ -34,7 +32,7 @@ CITIES = {
         "center": {"lat": 37.7749, "lon": -122.4194},
         "manual_default": {"lat": 37.7749, "lon": -122.4194},
         "local_path": "data/san_francisco/StreetSweeping.geojson",
-        # DataSF Socrata GeoJSON export (Street Sweeping Schedule, dataset yhqp-riqs)
+        # DataSF – Street Sweeping Schedule (dataset yhqp-riqs)
         "url": (
             "https://data.sfgov.org/api/geospatial/yhqp-riqs"
             "?method=export&type=GeoJSON"
@@ -42,19 +40,76 @@ CITIES = {
         "schema": "sf",
     },
 
+    "berkeley": {
+        "name": "Berkeley, CA",
+        "center": {"lat": 37.8716, "lon": -122.2727},
+        "manual_default": {"lat": 37.8716, "lon": -122.2727},
+        "local_path": "data/berkeley/StreetSweeping.geojson",
+        # Berkeley Open Data – Street Sweeping Routes
+        # Portal: https://data.cityofberkeley.info/Transportation/Street-Sweeping/s7pi-7kgv
+        # Download: Export → GeoJSON, save to data/berkeley/StreetSweeping.geojson
+        "url": None,
+        "schema": "berkeley",
+    },
+
+    "alameda": {
+        "name": "Alameda, CA",
+        "center": {"lat": 37.7652, "lon": -122.2416},
+        "manual_default": {"lat": 37.7652, "lon": -122.2416},
+        "local_path": "data/alameda/StreetSweeping.geojson",
+        # Alameda publishes sweeping schedules as PDFs; no GIS layer is known.
+        # If a GeoJSON or Shapefile becomes available, set url here.
+        # Otherwise digitise the PDF schedule into data/alameda/StreetSweeping.geojson
+        # using the generic schema (see data_loader._normalise_generic for expected columns).
+        "url": None,
+        "schema": "generic",
+    },
+
+    # ------------------------------------------------------------------
+    # Chicago
+    # ------------------------------------------------------------------
     "chicago_edgewater": {
         "name": "Chicago – Edgewater, IL",
         "center": {"lat": 41.9952, "lon": -87.6597},
         "manual_default": {"lat": 41.9952, "lon": -87.6597},
-        "local_path": "data/chicago/StreetSweeping.geojson",
-        # Chicago does not publish a geometric sweeping-schedule layer with an
-        # open download URL.  Download from the Chicago Data Portal and save to
-        # data/chicago/StreetSweeping.geojson, then implement _normalise_chicago
-        # in data_loader.py once you inspect the actual column names.
-        # Portal: https://data.cityofchicago.org/browse?q=street+sweeping
-        "url": None,
+        "local_path": "data/chicago/StreetSweepingZones.geojson",
+        # Zone geometry \u2014 Chicago Data Portal \u201cStreet Sweeping Zones\u201d GeoJSON export.
+        # Dataset ID 52z7-wvp2 is the 2025 edition.  Update the ID in both
+        # 'url' and 'schedule_url' each year once the new datasets are
+        # published at data.cityofchicago.org (search \"Street Sweeping\").
+        # Delete data/chicago/StreetSweepingZones.geojson to force a re-download.
+        "url": (
+            "https://data.cityofchicago.org/api/geospatial/52z7-wvp2"
+            "?method=export&type=GeoJSON"
+        ),
+        # Sweeping schedule \u2014 Socrata JSON API, fetched live (no local file needed).
+        # Dataset ID a2xx-z2ja is the 2025 schedule.  Rows: ward_section + dates.
+        "schedule_url": (
+            "https://data.cityofchicago.org/resource/a2xx-z2ja.json"
+            "?$limit=50000"
+        ),
         "schema": "chicago",
-        # Bounding box for the Edgewater neighbourhood only
+        # Bounding box keeps only the Edgewater neighbourhood
         "bbox": [41.970, -87.675, 42.010, -87.640],
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Regions – groups of cities loaded together when SINGLE_CITY_MODE = False
+# ---------------------------------------------------------------------------
+
+REGIONS = {
+    "bay_area": {
+        "name": "Bay Area",
+        "cities": ["oakland", "san_francisco", "berkeley", "alameda"],
+        # Wider center / zoom used for the overview inset only
+        "center": {"lat": 37.820, "lon": -122.295},
+        "overview_zoom": 9,
+    },
+    "chicago": {
+        "name": "Chicago",
+        "cities": ["chicago_edgewater"],
+        "center": {"lat": 41.9952, "lon": -87.6597},
+        "overview_zoom": 11,
     },
 }

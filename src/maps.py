@@ -1,4 +1,3 @@
-import math
 import plotly.graph_objects as go
 import shapely
 from datetime import date, timedelta
@@ -39,6 +38,23 @@ def _sweeping_color(row):
     return "cornflowerblue"
 
 
+def _geom_lines(geom):
+    """Yield (x_arr, y_arr) coordinate pairs for any drawable geometry type."""
+    if isinstance(geom, shapely.geometry.LineString):
+        yield geom.xy
+    elif isinstance(geom, shapely.geometry.MultiLineString):
+        for ls in geom.geoms:
+            yield ls.xy
+    elif isinstance(geom, shapely.geometry.Polygon):
+        yield geom.exterior.xy
+    elif isinstance(geom, shapely.geometry.MultiPolygon):
+        for poly in geom.geoms:
+            yield poly.exterior.xy
+
+
+CAR_NAME = "🚗 My Car"
+
+
 def _car_address(myCar):
     name   = getattr(myCar, "street_name",   None)
     number = getattr(myCar, "street_number", None)
@@ -47,12 +63,69 @@ def _car_address(myCar):
     return f"Lat {myCar.lat:.4f}, Lon {myCar.lon:.4f}"
 
 
+def _car_urgency_color(schedule_even, schedule_odd, car_side):
+    """Return urgency color for the car based on its side's sweeping schedule."""
+    today    = date.today()
+    tomorrow = today + timedelta(days=1)
+    entries  = schedule_even if car_side == "even" else schedule_odd
+    dates: list = []
+    for e in entries:
+        if e and len(e) >= 1:
+            try:
+                dates.extend(_analysis.parse_sweeping_code(e[0]))
+            except Exception:
+                pass
+    if today in dates:
+        return "tomato"
+    if tomorrow in dates:
+        return "orange"
+    return "cornflowerblue"
+
+
+# Annotation panel styles keyed by urgency color
+_URGENCY_PANEL = {
+    "tomato":         {"bgcolor": "rgba(255,200,190,0.95)", "bordercolor": "tomato"},
+    "orange":         {"bgcolor": "rgba(255,235,190,0.95)", "bordercolor": "darkorange"},
+    "cornflowerblue": {"bgcolor": "rgba(255,255,255,0.88)", "bordercolor": "#aaa"},
+}
+
+# Hover-label styles keyed by urgency color
+_URGENCY_HOVER = {
+    "tomato":         dict(bgcolor="tomato",  bordercolor="tomato",     font=dict(color="white")),
+    "orange":         dict(bgcolor="orange",  bordercolor="darkorange", font=dict(color="black")),
+    "cornflowerblue": dict(bgcolor="white",   bordercolor="#aaa",       font=dict(color="black")),
+}
+
+
+def _densify(xs, ys, max_step=0.0003):
+    """
+    Insert intermediate points between every pair of vertices so that hover
+    events fire anywhere along the line, not just at the original vertices.
+    max_step is in degrees (~30 m at 37 N).
+    """
+    out_x, out_y = [xs[0]], [ys[0]]
+    for i in range(1, len(xs)):
+        dx = xs[i] - xs[i - 1]
+        dy = ys[i] - ys[i - 1]
+        n  = max(1, int(((dx * dx + dy * dy) ** 0.5) / max_step))
+        for j in range(1, n):
+            t = j / n
+            out_x.append(xs[i - 1] + t * dx)
+            out_y.append(ys[i - 1] + t * dy)
+        out_x.append(xs[i])
+        out_y.append(ys[i])
+    return out_x, out_y
+
+
 def _fmt_schedule(entries, label, highlight=False):
-    """Return a single HTML line for one side's schedule."""
+    """Return a single HTML line: bold label, plain schedule text."""
     valid = [e for e in entries if e and len(e) >= 3]
-    lbl = f"<b>{label}</b>" if highlight else label
+    # Leading indicator keeps both rows aligned: highlighted gets ►, others
+    # get a same-width invisible spacer so text columns line up.
+    prefix     = "&#9658;&nbsp;" if highlight else "&nbsp;&nbsp;&nbsp;"
+    bold_label = f"<b>{prefix}{label}:</b>"
     if not valid:
-        return f"{lbl}: no sweeping"
+        return f"{bold_label} no sweeping"
     seen = set()
     parts = []
     for entry in valid:
@@ -60,7 +133,7 @@ def _fmt_schedule(entries, label, highlight=False):
         if key not in seen:
             parts.append(f"{entry[1]} \u2014 {entry[2]}")
             seen.add(key)
-    return f"{lbl}: {' / '.join(parts)}"
+    return f"{bold_label} {' / '.join(parts)}"
 
 
 def _build_info_panel(myCar, schedule_even, schedule_odd):
@@ -71,24 +144,13 @@ def _build_info_panel(myCar, schedule_even, schedule_odd):
     car_side = "even" if (number and number % 2 == 0) else "odd"
 
     lines = [
-        f"<b>Car:</b> {addr}",
+        f"<b>{CAR_NAME}:</b> {addr}",
         f"<b>Date:</b> {today.strftime('%A, %B %-d %Y')}",
         "",
         _fmt_schedule(schedule_even, "Even side", highlight=(car_side == "even")),
         _fmt_schedule(schedule_odd,  "Odd side",  highlight=(car_side == "odd")),
     ]
     return "<br>".join(lines)
-
-
-def _view_circle(lat, lon, zoom=15, px_half=400, n=64):
-    """Lat/lon points of a circle approximating the main map's view extent."""
-    deg_per_px = 360.0 / (256 * (2 ** zoom))
-    r_lon = deg_per_px * px_half
-    r_lat = r_lon * math.cos(math.radians(lat))
-    angles = [2 * math.pi * i / n for i in range(n + 1)]
-    lats = [lat + r_lat * math.cos(a) for a in angles]
-    lons = [lon + r_lon * math.sin(a) for a in angles]
-    return lats, lons
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +166,11 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
     """
     schedule_even = schedule_even or []
     schedule_odd  = schedule_odd  or []
+
+    number    = getattr(myCar, "street_number", None)
+    car_side  = "even" if (number and number % 2 == 0) else "odd"
+    car_color = _car_urgency_color(schedule_even, schedule_odd, car_side)
+
     myCity_ = myCity.to_crs("EPSG:4326")
 
     # Bucket street segments by colour so each colour is a single trace
@@ -118,16 +185,11 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
             f"Even: {_safe(row.get('DESC_EVEN'))} \u2014 {_safe(row.get('TIME_EVEN'))}<br>"
             f"Odd:  {_safe(row.get('DESC_ODD'))} \u2014 {_safe(row.get('TIME_ODD'))}"
         )
-        linestrings = (
-            [geom]            if isinstance(geom, shapely.geometry.LineString)
-            else list(geom.geoms) if isinstance(geom, shapely.geometry.MultiLineString)
-            else []
-        )
-        for ls in linestrings:
-            x, y = ls.xy
-            buckets[color]["lats"].extend(list(y) + [None])
-            buckets[color]["lons"].extend(list(x) + [None])
-            buckets[color]["texts"].extend([hover] * len(y) + [None])
+        for x, y in _geom_lines(geom):
+            dx, dy = _densify(list(x), list(y))
+            buckets[color]["lats"].extend(dy + [None])
+            buckets[color]["lons"].extend(dx + [None])
+            buckets[color]["texts"].extend([hover] * len(dx) + [None])
 
     fig = go.Figure()
 
@@ -149,41 +211,37 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
             name=label,
         ))
 
-    # --- Car position marker (large red dot) ---
-    addr = _car_address(myCar)
-    car_hover = (
-        f"<b>🚗 My Car</b><br>"
-        f"Address: {addr}<br>"
-        f"Lat: {myCar.lat:.5f} / Lon: {myCar.lon:.5f}"
-    )
-    if message:
-        car_hover += "<br><br>" + message.replace("\n", "<br>")
+    # --- Car position marker (dark outline ring + coloured inner dot) ---
+    # Scattermapbox markers don't support marker.line, so we use two traces:
+    # a larger dark ring underneath for contrast, and the coloured dot on top.
+    addr      = _car_address(myCar)
+    car_hover = f"<b>{CAR_NAME}</b><br>{addr}"
 
     fig.add_trace(go.Scattermapbox(
         lat=[myCar.lat], lon=[myCar.lon],
         mode="markers",
-        marker=dict(size=20, color="#FF2200", opacity=1.0),
+        marker=dict(size=28, color="#111111", opacity=0.85),
+        hoverinfo="skip",
+        showlegend=False,
+    ))
+
+    fig.add_trace(go.Scattermapbox(
+        lat=[myCar.lat], lon=[myCar.lon],
+        mode="markers",
+        marker=dict(size=20, color=car_color, opacity=1.0),
         hoverinfo="text", hovertext=car_hover,
-        name="My Car",
+        hoverlabel=_URGENCY_HOVER[car_color],
+        name=CAR_NAME,
     ))
 
     # --- Info annotation (bottom-left overlay) ---
     panel_html = _build_info_panel(myCar, schedule_even, schedule_odd)
 
-    # --- Inset overview map (lower-right): car position + view-extent circle ---
-    circle_lats, circle_lons = _view_circle(myCar.lat, myCar.lon)
+    # --- Inset overview map (lower-right): car position only ---
     fig.add_trace(go.Scattermapbox(
         lat=[myCar.lat], lon=[myCar.lon],
         mode="markers",
         marker=dict(size=10, color="red"),
-        hoverinfo="skip",
-        subplot="mapbox2",
-        showlegend=False,
-    ))
-    fig.add_trace(go.Scattermapbox(
-        lat=circle_lats, lon=circle_lons,
-        mode="lines",
-        line=dict(color="red", width=2),
         hoverinfo="skip",
         subplot="mapbox2",
         showlegend=False,
@@ -225,8 +283,9 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
                 align="left", showarrow=False,
                 xref="paper", yref="paper",
                 x=0.01, y=0.01,
-                bgcolor="rgba(255,255,255,0.88)",
-                bordercolor="#aaa", borderwidth=1,
+                bgcolor=_URGENCY_PANEL[car_color]["bgcolor"],
+                bordercolor=_URGENCY_PANEL[car_color]["bordercolor"],
+                borderwidth=1,
                 font=dict(size=13),
             ),
             dict(
@@ -240,27 +299,6 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
                 bgcolor="rgba(255,255,255,0.70)",
             ),
         ],
-        # Zoom buttons sit just above the inset, aligned to its right edge
-        updatemenus=[dict(
-            type="buttons",
-            direction="left",
-            showactive=False,
-            x=INSET_X1 - 0.005, xanchor="right",
-            y=INSET_Y1 + 0.005, yanchor="bottom",
-            bgcolor="white", bordercolor="#888", borderwidth=1,
-            font=dict(size=18),
-            pad=dict(r=6, l=6, t=3, b=3),
-            buttons=[
-                dict(label="\u2212", method="relayout",
-                     args=[{"mapbox.zoom": 12}]),
-                dict(label="\u233e", method="relayout",
-                     args=[{"mapbox.zoom": 15,
-                            "mapbox.center": {"lat": myCar.lat,
-                                              "lon": myCar.lon}}]),
-                dict(label="+", method="relayout",
-                     args=[{"mapbox.zoom": 17}]),
-            ],
-        )],
     )
 
     fig.show(config=dict(scrollZoom=True, displayModeBar=True, displaylogo=False))

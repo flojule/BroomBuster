@@ -1,5 +1,5 @@
 import car, maps, notification, analysis, data_loader
-from cities import CITIES
+from cities import CITIES, REGIONS
 
 import time
 
@@ -7,15 +7,23 @@ import time
 # Configuration
 # ---------------------------------------------------------------------------
 
-# City to analyse — see src/cities.py for available keys.
-# "oakland" is bundled; "san_francisco" auto-downloads on first run.
+# Regional mode: load all cities in a region together.
+# Available regions: "bay_area", "chicago"  (see src/cities.py → REGIONS)
+REGION = "bay_area"
+
+# Set SINGLE_CITY_MODE = True to load only the city named in CITY below.
+# Useful while developing or when other cities' data files aren't available yet.
+SINGLE_CITY_MODE = True
+
+# City used when SINGLE_CITY_MODE = True.
+# Available keys: "oakland", "san_francisco", "berkeley", "alameda", "chicago_edgewater"
 CITY = "oakland"
 
 # Set USE_LIVE_GPS = True to fetch the car's position from Traccar.
 # Set USE_LIVE_GPS = False to use fixed manual coordinates defined below.
 USE_LIVE_GPS = False
 
-# Manual location override (defaults to the city's built-in example location).
+# Manual location override (defaults to city / region center when None).
 MANUAL_LAT = None
 MANUAL_LON = None
 
@@ -27,14 +35,19 @@ CHECK_INTERVAL_H  = 1     # Hours between checks when running continuously
 
 if __name__ == "__main__":
 
-    city_cfg = CITIES[CITY]
+    if SINGLE_CITY_MODE:
+        city_cfg = CITIES[CITY]
+        myCity   = data_loader.load_city_data(CITY)
+        default_lat = city_cfg["manual_default"]["lat"]
+        default_lon = city_cfg["manual_default"]["lon"]
+    else:
+        region_cfg  = REGIONS[REGION]
+        myCity      = data_loader.load_region_data(REGION)
+        default_lat = region_cfg["center"]["lat"]
+        default_lon = region_cfg["center"]["lon"]
 
-    # Load (and normalise) city street-sweeping data
-    myCity = data_loader.load_city_data(CITY)
-
-    # Resolve manual location: explicit override > city default
-    lat = MANUAL_LAT if MANUAL_LAT is not None else city_cfg["manual_default"]["lat"]
-    lon = MANUAL_LON if MANUAL_LON is not None else city_cfg["manual_default"]["lon"]
+    lat = MANUAL_LAT if MANUAL_LAT is not None else default_lat
+    lon = MANUAL_LON if MANUAL_LON is not None else default_lon
 
     myCar = car.Car(lat=lat, lon=lon)
 

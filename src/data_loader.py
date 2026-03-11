@@ -69,6 +69,42 @@ def load_city_data(city_key: str) -> geopandas.GeoDataFrame:
     return _normalise(gdf, city["schema"])
 
 
+def load_region_data(region_key: str) -> geopandas.GeoDataFrame:
+    """
+    Return a normalised GeoDataFrame covering all cities in the given region.
+
+    Cities whose data files are missing (and have no auto-download URL) are
+    skipped with a warning, so the rest of the region still loads.  Each row
+    gets a ``_city`` column with the source city key.
+    """
+    import pandas as pd
+    from cities import REGIONS
+
+    region = REGIONS[region_key]
+    print(f"Loading region '{region['name']}' …")
+    gdfs = []
+    for city_key in region["cities"]:
+        try:
+            gdf = load_city_data(city_key).copy()
+            gdf["_city"] = city_key
+            gdfs.append(gdf)
+            print(f"  ✓ {CITIES[city_key]['name']} ({len(gdf)} segments)")
+        except FileNotFoundError as exc:
+            print(f"  ⚠  Skipping {CITIES[city_key]['name']}: {exc}")
+
+    if not gdfs:
+        raise RuntimeError(
+            f"No city data could be loaded for region '{region_key}'.\n"
+            "Place the required data files and retry (see cities.py for details)."
+        )
+
+    combined = geopandas.GeoDataFrame(
+        pd.concat(gdfs, ignore_index=True), crs=gdfs[0].crs
+    )
+    print(f"Region ready — {len(combined)} total segments.")
+    return combined
+
+
 # ---------------------------------------------------------------------------
 # Download helpers
 # ---------------------------------------------------------------------------
@@ -92,9 +128,12 @@ def _download(url: str, local_path: str) -> None:
 
 def _normalise(gdf: geopandas.GeoDataFrame, schema: str) -> geopandas.GeoDataFrame:
     dispatch = {
-        "oakland": _normalise_oakland,
-        "sf":      _normalise_sf,
-        "chicago": _normalise_chicago,
+        "oakland":  _normalise_oakland,
+        "sf":       _normalise_sf,
+        "chicago":  _normalise_chicago,
+        "berkeley": _normalise_berkeley,
+        "alameda":  _normalise_alameda,
+        "generic":  _normalise_generic,
     }
     fn = dispatch.get(schema)
     if fn is None:
@@ -242,41 +281,207 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Chicago  (placeholder – update once you have the actual shapefile)
+# Chicago  (zones from geospatial export + schedule from Socrata JSON API)
 # ---------------------------------------------------------------------------
 
 def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     """
-    Chicago street-sweeping data normaliser.
+    Chicago normaliser: joins the Ward-Section zone polygons (from the
+    geospatial export) with the sweeping schedule (fetched live from the
+    Socrata JSON API).  No manual download is needed.
 
-    Chicago does not publish a single GIS layer with standardised even/odd
-    sweeping codes, so this function guesses column names and does a best-effort
-    mapping.  Once you have the actual file, inspect its columns with
-    `geopandas.read_file(path).columns` and update the column names below.
+    Chicago publishes new datasets each year (typically March/April).
+    Update the 'url' and 'schedule_url' IDs in cities.py when that happens.
+    """
+    import datetime as _dt
+    from collections import defaultdict
+    from cities import CITIES as _cit
+
+    # ------------------------------------------------------------------
+    # 1. Fetch the sweeping schedule from the Socrata API
+    # ------------------------------------------------------------------
+    schedule_url = _cit["chicago_edgewater"].get("schedule_url")
+    sched_by_ws: dict = defaultdict(list)
+    if schedule_url:
+        print("  Fetching Chicago schedule from Socrata API...")
+        resp = requests.get(schedule_url, timeout=60)
+        resp.raise_for_status()
+        for row in resp.json():
+            ws = str(row.get("ward_section_concatenated", "")).zfill(4)
+            try:
+                month_n = int(row.get("month_number", 0))
+            except (TypeError, ValueError):
+                continue
+            dates_csv = str(row.get("dates", "")).strip()
+            if ws and month_n and dates_csv:
+                sched_by_ws[ws].append((month_n, dates_csv))
+
+    # ------------------------------------------------------------------
+    # 2. Detect ward / section columns in the zones GeoDataFrame
+    # ------------------------------------------------------------------
+    c = {col.lower(): col for col in gdf.columns}
+
+    def _col(*alts):
+        for n in alts:
+            if n in c:
+                return c[n]
+        return None
+
+    ws_col   = _col("ward_section_concatenated", "wardsection",
+                    "ward_section", "ws_concat")
+    ward_col = _col("ward", "ward_no", "wardno")
+    sect_col = _col("section", "section_no", "sectionno", "sect")
+
+    def _ws_key(row):
+        if ws_col and ws_col in row.index:
+            return str(row[ws_col]).zfill(4)
+        if ward_col and sect_col:
+            return (
+                str(row.get(ward_col, "")).zfill(2)
+                + str(row.get(sect_col, "")).zfill(2)
+            )
+        return ""
+
+    # ------------------------------------------------------------------
+    # 3. Build schedule strings for each zone
+    # ------------------------------------------------------------------
+    today_year = _dt.date.today().year
+    month_abbr = {
+        1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr",
+        5: "May", 6: "Jun", 7: "Jul", 8: "Aug",
+        9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec",
+    }
+
+    def _build_schedule(month_days_list):
+        """Return (dates_code, human_desc) from [(month_n, days_csv), ...]."""
+        iso_parts, desc_parts = [], []
+        for m, days_csv in sorted(month_days_list):
+            for d_str in days_csv.split(","):
+                d_str = d_str.strip()
+                try:
+                    iso_parts.append(
+                        _dt.date(today_year, m, int(d_str)).isoformat()
+                    )
+                except (ValueError, TypeError):
+                    pass
+            desc_parts.append(f"{month_abbr.get(m, str(m))} {days_csv}")
+        code = f"DATES:{','.join(iso_parts)}" if iso_parts else None
+        desc = "; ".join(desc_parts) or None
+        return code, desc
+
+    out = gdf.copy()
+    day_codes, descs, names = [], [], []
+    for _, row in out.iterrows():
+        ws = _ws_key(row)
+        code, desc = _build_schedule(sched_by_ws.get(ws, []))
+        day_codes.append(code)
+        descs.append(desc)
+        w = str(row.get(ward_col, "?") if ward_col else "?").zfill(2)
+        s = str(row.get(sect_col, "?") if sect_col else "?").zfill(2)
+        names.append(f"Ward {w}, Section {s}")
+
+    out["STREET_NAME"] = names
+    out["DAY_EVEN"]    = day_codes   # same zone-wide schedule for both sides
+    out["DAY_ODD"]     = day_codes
+    out["DESC_EVEN"]   = descs
+    out["DESC_ODD"]    = descs
+    out["TIME_EVEN"]   = None
+    out["TIME_ODD"]    = None
+    out["L_F_ADD"]     = np.nan
+    out["L_T_ADD"]     = np.nan
+    out["R_F_ADD"]     = np.nan
+    out["R_T_ADD"]     = np.nan
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Generic  (best-effort auto-detection for unknown schemas)
+# ---------------------------------------------------------------------------
+
+def _normalise_generic(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
+    """
+    Best-effort normaliser for cities whose schema is not yet mapped.
+
+    Detects STREET_NAME and address-range columns from common naming patterns
+    and leaves all schedule fields empty.  Once you have the actual data, run
+        geopandas.read_file(path).columns
+    and write a dedicated normaliser (like _normalise_oakland) for accurate
+    sweeping schedule information.
     """
     out = gdf.copy()
     c = {col.lower(): col for col in out.columns}
 
-    def col(*alts):
+    def _col(*alts):
         for n in alts:
-            if n.lower() in c:
-                return c[n.lower()]
+            if n in c:
+                return c[n]
         return None
 
-    name_col = col("street_name", "streetname", "name", "st_name", "stname")
+    name_col = _col(
+        "street_name", "stname", "streetname", "name", "fullname",
+        "st_name", "full_name", "label", "street",
+    )
     out["STREET_NAME"] = (
         out[name_col].fillna("").str.strip().str.upper() if name_col else ""
     )
 
-    # Map whatever schedule columns exist; update these once you inspect the file
-    for src, dst in [
-        ("day_even", "DAY_EVEN"), ("day_odd", "DAY_ODD"),
-        ("desc_even", "DESC_EVEN"), ("desc_odd", "DESC_ODD"),
-        ("time_even", "TIME_EVEN"), ("time_odd", "TIME_ODD"),
+    for dst, alts in [
+        ("L_F_ADD", ["l_f_add", "lfromadd", "l_fromaddr", "leftfrom"]),
+        ("L_T_ADD", ["l_t_add", "ltoadd",   "l_toaddr",   "leftto"  ]),
+        ("R_F_ADD", ["r_f_add", "rfromadd", "r_fromaddr", "rightfrom"]),
+        ("R_T_ADD", ["r_t_add", "rtoadd",   "r_toaddr",   "rightto"  ]),
     ]:
-        out[dst] = out[c[src]] if src in c else None
+        found = _col(*alts)
+        out[dst] = out[found] if found else np.nan
 
-    for addr_cn in ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD"):
-        out[addr_cn] = out[c[addr_cn.lower()]] if addr_cn.lower() in c else np.nan
+    for col_name in ("DAY_EVEN", "DAY_ODD", "DESC_EVEN", "DESC_ODD",
+                     "TIME_EVEN", "TIME_ODD"):
+        out[col_name] = None
 
     return out
+
+
+# ---------------------------------------------------------------------------
+# Berkeley  (placeholder — update once data is obtained)
+# ---------------------------------------------------------------------------
+
+def _normalise_berkeley(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
+    """
+    Berkeley street-sweeping normaliser.
+
+    Download the data from:
+      https://data.cityofberkeley.info/Transportation/Street-Sweeping/s7pi-7kgv
+    Export as GeoJSON and save to data/berkeley/StreetSweeping.geojson.
+
+    Then inspect the columns with:
+      geopandas.read_file("data/berkeley/StreetSweeping.geojson").columns
+
+    Once the column names are known, replace this function with a proper
+    mapping (see _normalise_oakland for a reference).  Until then, the
+    generic auto-detector is used (schedule info will be empty).
+    """
+    return _normalise_generic(gdf)
+
+
+# ---------------------------------------------------------------------------
+# Alameda  (placeholder — no public GIS layer known yet)
+# ---------------------------------------------------------------------------
+
+def _normalise_alameda(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
+    """
+    Alameda street-sweeping normaliser.
+
+    Alameda currently publishes sweeping schedules as PDFs only.  If a GeoJSON
+    or Shapefile becomes available, save it to data/alameda/StreetSweeping.geojson
+    and update this function.
+
+    Alternatively, digitise the PDF schedule manually:
+      1. Load the PDF route map in QGIS alongside an OSM base layer.
+      2. Trace the street segments and tag each with day/time/side attributes.
+      3. Export as GeoJSON using the column names expected by _normalise_generic.
+
+    Until proper data exists, the generic auto-detector is used (schedule info
+    will be empty).
+    """
+    return _normalise_generic(gdf)
+
