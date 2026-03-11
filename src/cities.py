@@ -70,30 +70,25 @@ CITIES = {
     # ------------------------------------------------------------------
     # Chicago
     # ------------------------------------------------------------------
-    "chicago_edgewater": {
-        "name": "Chicago – Edgewater, IL",
-        "center": {"lat": 41.9952, "lon": -87.6597},
-        # Near 6321 N Glenwood Ave, Chicago (Edgewater)
+    "chicago_all": {
+        "name": "Chicago, IL",
+        "center": {"lat": 41.8781, "lon": -87.6298},
         "manual_default": {"lat": 41.9951, "lon": -87.6593},
         "local_path": "data/chicago/StreetSweepingZones.geojson",
-        # Zone geometry \u2014 Chicago Data Portal \u201cStreet Sweeping Zones\u201d GeoJSON export.
-        # Dataset ID 52z7-wvp2 is the 2025 edition.  Update the ID in both
-        # 'url' and 'schedule_url' each year once the new datasets are
-        # published at data.cityofchicago.org (search \"Street Sweeping\").
+        # Chicago Data Portal – Street Sweeping Zones (tabular dataset utb4-q645).
+        # Includes polygon geometry AND sweeping schedule as month columns
+        # (april..november).  Update the dataset ID each year when Chicago
+        # publishes new data (typically March/April).
         # Delete data/chicago/StreetSweepingZones.geojson to force a re-download.
-        # Dataset utb4-q645 is the 2025 zones — includes polygon geometry AND
-        # the sweeping schedule embedded as month columns (april..november).
-        # The map-view sibling 52z7-wvp2 has no geometry; always use the
-        # tabular dataset.  Update both IDs each year once new data is published
-        # (typically March/April) at data.cityofchicago.org.
         "url": (
             "https://data.cityofchicago.org/resource/utb4-q645.geojson"
             "?$limit=50000"
         ),
         "schema": "chicago",
-        # Bounding box: Edgewater – Rogers Park area (Wards 40, 48, 49 + neighbours)
-        "bbox": [41.960, -87.700, 42.020, -87.630],
+        # Full Chicago city limits
+        "bbox": [41.644, -87.848, 42.024, -87.524],
     },
+
 }
 
 # ---------------------------------------------------------------------------
@@ -111,9 +106,9 @@ REGIONS = {
     },
     "chicago": {
         "name": "Chicago",
-        "cities": ["chicago_edgewater"],
-        "center": {"lat": 41.997, "lon": -87.6650},
-        "manual_default": {"lat": 41.997024, "lon": -87.6650475},
-        "overview_zoom": 11,
+        "cities": ["chicago_all"],
+        "center": {"lat": 41.9100, "lon": -87.6700},
+        "manual_default": {"lat": 41.996593, "lon": -87.665282},
+        "overview_zoom": 10,
     },
 }

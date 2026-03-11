@@ -96,6 +96,95 @@ _URGENCY_HOVER = {
     "cornflowerblue": dict(bgcolor="white",   bordercolor="#aaa",       font=dict(color="black")),
 }
 
+# ---------------------------------------------------------------------------
+# Zone colour palette
+# ---------------------------------------------------------------------------
+
+# 20 perceptually distinct named colours.  Urgency is communicated by fill
+# opacity and border vividness; the chosen hue signals zone identity.
+_ZONE_PALETTE = [
+    ("Crimson",    220, 50,  60),
+    ("Coral",      255, 100, 80),
+    ("Tomato",     255, 70,  47),
+    ("Salmon",     248, 138, 105),
+    ("Amber",      255, 185, 15),
+    ("Goldenrod",  218, 160, 30),
+    ("Tangerine",  255, 145, 0),
+    ("Khaki",      195, 170, 65),
+    ("Lime",       128, 190, 48),
+    ("Olive",      120, 150, 52),
+    ("Teal",       38,  155, 140),
+    ("Turquoise",  52,  182, 168),
+    ("Sky",        75,  175, 215),
+    ("Steelblue",  70,  130, 180),
+    ("Royalblue",  60,  100, 220),
+    ("Periwinkle", 118, 138, 218),
+    ("Lavender",   148, 112, 202),
+    ("Plum",       172, 72,  168),
+    ("Orchid",     192, 92,  172),
+    ("Rose",       225, 82,  112),
+]
+
+# (fill_alpha, border_alpha) per urgency level
+_URGENCY_ALPHA = {
+    "tomato":         (0.85, 0.95),
+    "orange":         (0.75, 0.92),
+    "cornflowerblue": (0.30, 0.55),
+}
+
+# Border darkening factor per urgency (multiplied with zone's base rgb)
+_URGENCY_BORDER_DARKEN = {
+    "tomato":         0.45,
+    "orange":         0.55,
+    "cornflowerblue": 0.65,
+}
+
+
+def _zone_fill_color(w: int, s: int, urgency: str):
+    """Return (fill_rgba, border_rgba, color_name) for a zone."""
+    idx = (w * 100 + s) % len(_ZONE_PALETTE)
+    name, r, g, b = _ZONE_PALETTE[idx]
+    fa, ba = _URGENCY_ALPHA[urgency]
+    dk = _URGENCY_BORDER_DARKEN[urgency]
+    br, bg_, bb = int(r * dk), int(g * dk), int(b * dk)
+    fill   = f"rgba({r},{g},{b},{fa:.2f})"
+    border = f"rgba({br},{bg_},{bb},{ba:.2f})"
+    return fill, border, name
+
+
+def _interior_points(geom, max_pts: int = 16):
+    """
+    Return a list of (lat, lon) points guaranteed to lie inside *geom*.
+    Uses a coarse grid over the bounding box, filtered by containment, with a
+    hard cap so large polygons don't generate thousands of markers.
+    Always includes representative_point() as a fast, guaranteed fallback.
+    """
+    pts = []
+    polys = (
+        list(geom.geoms)
+        if isinstance(geom, shapely.geometry.MultiPolygon)
+        else [geom]
+    )
+    for poly in polys:
+        rp = poly.representative_point()
+        pts.append((rp.y, rp.x))
+        minx, miny, maxx, maxy = poly.bounds
+        w, h = maxx - minx, maxy - miny
+        # Choose a grid resolution that gives ~16 cells per polygon
+        n = max(2, int((max_pts ** 0.5)))
+        xs = [minx + (i + 0.5) * w / n for i in range(n)]
+        ys = [miny + (j + 0.5) * h / n for j in range(n)]
+        for x in xs:
+            for y in ys:
+                if len(pts) >= max_pts:
+                    break
+                p = shapely.geometry.Point(x, y)
+                if poly.contains(p):
+                    pts.append((y, x))
+            if len(pts) >= max_pts:
+                break
+    return pts
+
 
 def _densify(xs, ys, max_step=0.0003):
     """
@@ -184,37 +273,6 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
         "cornflowerblue": ("No sweeping soon",  1.5),
     }
 
-    # Semi-transparent fill palettes for polygon (zone) data — each urgency
-    # level gets several shades so adjacent zones are visually distinct.
-    _POLY_FILLS = {
-        "tomato": [
-            "rgba(255,80,60,0.38)",
-            "rgba(210,40,30,0.38)",
-            "rgba(255,120,90,0.38)",
-            "rgba(190,30,20,0.38)",
-            "rgba(240,70,50,0.38)",
-        ],
-        "orange": [
-            "rgba(255,160,0,0.45)",
-            "rgba(230,120,0,0.45)",
-            "rgba(255,190,40,0.45)",
-            "rgba(200,100,0,0.45)",
-            "rgba(255,145,20,0.45)",
-        ],
-        "cornflowerblue": [
-            "rgba(100,149,237,0.28)",
-            "rgba(65,120,180,0.28)",
-            "rgba(135,190,220,0.28)",
-            "rgba(155,170,210,0.28)",
-            "rgba(80,140,200,0.28)",
-        ],
-    }
-    _POLY_BORDER = {
-        "tomato":         "rgba(160,40,20,0.85)",
-        "orange":         "rgba(180,90,0,0.85)",
-        "cornflowerblue": "rgba(50,90,170,0.65)",
-    }
-
     _POLY_TYPES = (shapely.geometry.Polygon, shapely.geometry.MultiPolygon)
 
     def _hover_side(desc, time, label):
@@ -224,21 +282,23 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
         return f"{label}: {body}"
 
     def _zone_hover(row):
+        name = _safe(row.get("STREET_NAME"))
         return (
-            f"<b>{_safe(row.get('STREET_NAME'))}</b><br>"
+            f"<b>{name}</b><br>"
             + _hover_side(row.get("DESC_EVEN"), row.get("TIME_EVEN"), "Sweeping") + "<br>"
         )
 
     # -----------------------------------------------------------------------
     # Polygon zone rendering  (e.g. Chicago ward sections)
-    # Each zone is a filled polygon; shade varies by ward/section identity so
-    # neighbouring zones are visually distinct within the same urgency class.
+    # Zones are bucketed by (palette_index × urgency) — at most 60 buckets —
+    # so the figure has far fewer traces than one-per-zone.  Interior hover
+    # coverage is provided by a single invisible marker trace per urgency.
     # -----------------------------------------------------------------------
-    # poly_buckets: (fill_rgba, border_rgba, urgency) -> {lats, lons, texts}
-    poly_buckets: dict = {}
+    # outline_buckets: (fill_rgba, border_rgba, urgency) -> {lats, lons, texts}
+    outline_buckets: dict = {}
+    # hover_pts: urgency -> {lats, lons, texts, hoverlabel}
+    hover_pts: dict = {}
     poly_legend_added: set = set()
-    # Centroid markers enable hover anywhere inside a polygon (not just on edge)
-    c_lats, c_lons, c_texts = [], [], []
 
     for _, row in myCity_.iterrows():
         geom = row["geometry"]
@@ -248,31 +308,35 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
             continue
 
         color = _sweeping_color(row)
-        fills = _POLY_FILLS[color]
-        # Deterministic shade index from ward + section numbers
         try:
             w = int(float(row.get("ward_id") or row.get("ward") or 0))
             s = int(float(row.get("section_id") or row.get("section") or 0))
         except (TypeError, ValueError):
             w, s = 0, 0
-        fill_color   = fills[(w * 100 + s) % len(fills)]
-        border_color = _POLY_BORDER[color]
-        key = (fill_color, border_color, color)
-        if key not in poly_buckets:
-            poly_buckets[key] = {"lats": [], "lons": [], "texts": []}
 
+        fill_color, border_color, _color_name = _zone_fill_color(w, s, color)
         hover = _zone_hover(row)
+
+        okey = (fill_color, border_color, color)
+        if okey not in outline_buckets:
+            outline_buckets[okey] = {"lats": [], "lons": [], "texts": []}
+        ob = outline_buckets[okey]
         for x, y in _geom_lines(geom):
             xs, ys = list(x), list(y)
-            poly_buckets[key]["lats"].extend(ys + [None])
-            poly_buckets[key]["lons"].extend(xs + [None])
-            poly_buckets[key]["texts"].extend([hover] * len(xs) + [None])
+            ob["lats"].extend(ys + [None])
+            ob["lons"].extend(xs + [None])
+            ob["texts"].extend([hover] * len(xs) + [None])
 
-        # Centroid for reliable interior hover
-        centroid = geom.centroid
-        c_lats.append(centroid.y)
-        c_lons.append(centroid.x)
-        c_texts.append(hover)
+        # Interior representative point for reliable hover anywhere inside
+        rp = geom.representative_point()
+        if color not in hover_pts:
+            hlabel = dict(bgcolor="white", bordercolor="#aaa",
+                          font=dict(color="black"))
+            hover_pts[color] = {"lats": [], "lons": [], "texts": [],
+                                 "hlabel": hlabel}
+        hover_pts[color]["lats"].append(rp.y)
+        hover_pts[color]["lons"].append(rp.x)
+        hover_pts[color]["texts"].append(hover)
 
     # -----------------------------------------------------------------------
     # Line street rendering  (Oakland / SF — two-pass dedup)
@@ -333,32 +397,33 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
     # -----------------------------------------------------------------------
     fig = go.Figure()
 
-    # -- Polygon zone fills --
-    for (fill_color, border_color, urgency), b in poly_buckets.items():
+    # -- Polygon zone fills (batched by palette×urgency — ~60 traces max) --
+    for (fill_color, border_color, urgency), ob in outline_buckets.items():
         label, _ = color_meta[urgency]
         show_legend = urgency not in poly_legend_added
         if show_legend:
             poly_legend_added.add(urgency)
         fig.add_trace(go.Scattermapbox(
-            lat=b["lats"], lon=b["lons"],
+            lat=ob["lats"], lon=ob["lons"],
             mode="lines",
             fill="toself",
             fillcolor=fill_color,
             line=dict(width=1.5, color=border_color),
-            hoverinfo="text", text=b["texts"],
+            hoverinfo="text", text=ob["texts"],
+            hoverlabel=dict(bgcolor="white", bordercolor="#aaa",
+                            font=dict(color="black")),
             name=label,
             showlegend=show_legend,
         ))
 
-    # Invisible centroid markers so hover fires anywhere inside each zone
-    if c_lats:
+    # -- Invisible interior markers: one trace per urgency for zone hover --
+    for urgency, hp in hover_pts.items():
         fig.add_trace(go.Scattermapbox(
-            lat=c_lats, lon=c_lons,
+            lat=hp["lats"], lon=hp["lons"],
             mode="markers",
-            marker=dict(size=40, opacity=0),
-            hoverinfo="text", text=c_texts,
-            hoverlabel=dict(bgcolor="white", bordercolor="#aaa",
-                            font=dict(color="black")),
+            marker=dict(size=30, opacity=0),
+            hoverinfo="text", text=hp["texts"],
+            hoverlabel=hp["hlabel"],
             showlegend=False,
         ))
 
@@ -406,7 +471,7 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
     fig.add_trace(go.Scattermapbox(
         lat=[myCar.lat], lon=[myCar.lon],
         mode="markers",
-        marker=dict(size=10, color="red"),
+        marker=dict(size=10, color=car_color),
         hoverinfo="skip",
         subplot="mapbox2",
         showlegend=False,

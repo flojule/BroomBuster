@@ -4,6 +4,8 @@ An interactive tool that shows where your car is parked on a live map and tells 
 
 ![Map screenshot — Oakland](images/oakland.png)
 
+![Map screenshot — Chicago](images/chicago.png)
+
 ## Features
 
 - **Two location modes** — pull live GPS from a [Traccar](https://www.traccar.org/) client (phone app or OBD dongle) _or_ set coordinates manually.
@@ -24,7 +26,7 @@ An interactive tool that shows where your car is parked on a live map and tells 
 |---|---|---|
 | Oakland, CA | Bundled shapefile | ✅ Ready |
 | San Francisco, CA | Auto-download from DataSF on first run | ✅ Ready |
-| Chicago (Edgewater), IL | Zones auto-download; schedule fetched live from Socrata API | ✅ Ready |
+| Chicago, IL | 849 ward-section zones auto-download from Chicago Data Portal | ✅ Ready |
 | Berkeley, CA | Manual download from Berkeley Open Data | ⚠️ Data file required |
 | Alameda, CA | No public GIS layer — requires manual digitisation | ⚠️ Data file required |
 
@@ -36,7 +38,8 @@ BroomBuster/
 │   └── oakland/
 │       └── StreetSweeping.shp      # Bundled Oakland shapefile
 ├── images/
-│   └── oakland.png                 # Screenshot used in this README
+│   ├── oakland.png                 # Screenshots used in this README
+│   └── chicago.png
 ├── src/
 │   ├── main.py          # Entry point — configure and run here
 │   ├── cities.py        # City and region configuration (URLs, paths, schemas)
@@ -118,14 +121,13 @@ print(geopandas.read_file("data/berkeley/StreetSweeping.geojson").columns.tolist
 
 ### Chicago
 
-Chicago's data is split across two annual datasets on the [Chicago Data Portal](https://data.cityofchicago.org):
+Chicago's sweeping data is a single dataset on the [Chicago Data Portal](https://data.cityofchicago.org) that bundles both polygon geometry and monthly schedule into one GeoJSON export:
 
-| Dataset | Purpose | How used |
+| Dataset | Socrata ID | What's inside |
 |---|---|---|
-| **Street Sweeping Zones** (`52z7-wvp2`) | Ward-section polygon boundaries | Downloaded once, cached to `data/chicago/StreetSweepingZones.geojson` |
-| **Street Sweeping Schedule** (`a2xx-z2ja`) | Sweeping dates per ward-section | Fetched live from the Socrata JSON API every run |
+| **Street Sweeping Zones** | `utb4-q645` | 849 MultiPolygon ward-section zones, each with month columns (`april`…`november`) marking which dates cleaning runs |
 
-Both dataset IDs and the schedule API URL are configured in `cities.py → chicago_edgewater`.  Chicago publishes new datasets each year (typically March/April) — update those IDs when that happens, then delete the cached zones file to force a re-download.
+The file is downloaded automatically on first run and cached to `data/chicago/StreetSweepingZones.geojson`.  Chicago publishes a new dataset each year (typically March/April) — update the Socrata dataset ID in `cities.py → chicago_all` when that happens, then delete the cached file to force a re-download.
 
 ## Traccar GPS setup
 

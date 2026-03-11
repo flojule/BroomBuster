@@ -16,7 +16,7 @@ REGION = "chicago"
 SINGLE_CITY_MODE = False
 
 # City used when SINGLE_CITY_MODE = True.
-# Available keys: "oakland", "san_francisco", "berkeley", "alameda", "chicago_edgewater"
+# Available keys: "oakland", "san_francisco", "berkeley", "alameda", "chicago_all"
 CITY = "oakland"
 
 # Set USE_LIVE_GPS = True to fetch the car's position from Traccar.
@@ -26,7 +26,7 @@ USE_LIVE_GPS = False
 # Manual location override (uses region manual_default when None).
 # Set to your car's position to override.
 # bay_area example: 37.821326, -122.280705  (2931 Chestnut St, Oakland)
-# chicago example:  41.9951,   -87.6593     (near 6321 N Glenwood Ave)
+# chicago example:  41.996593,   -87.665282     (near N Glenwood Ave)
 MANUAL_LAT = None
 MANUAL_LON = None
 
