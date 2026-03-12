@@ -20,7 +20,7 @@ except ImportError:
     pass  # python-dotenv not installed — rely on real environment variables
 
 # Traccar GPS server
-TRACCAR_URL      = os.environ.get("TRACCAR_URL",      "https://demo4.traccar.org")
+TRACCAR_URL      = os.environ.get("TRACCAR_URL",      "")
 TRACCAR_USERNAME = os.environ.get("TRACCAR_USERNAME", "")
 TRACCAR_PASSWORD = os.environ.get("TRACCAR_PASSWORD", "")
 

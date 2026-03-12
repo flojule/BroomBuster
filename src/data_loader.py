@@ -39,10 +39,14 @@ from cities import CITIES
 # Public API
 # ---------------------------------------------------------------------------
 
-def load_city_data(city_key: str) -> geopandas.GeoDataFrame:
+def load_city_data(city_key: str, *, force_refresh: bool = False) -> geopandas.GeoDataFrame:
     """Return a normalised GeoDataFrame for the given city key."""
     city = CITIES[city_key]
     local_path = city["local_path"]
+
+    if force_refresh and os.path.exists(local_path):
+        os.remove(local_path)
+        print(f"Removed cached data for {city['name']}.")
 
     if not os.path.exists(local_path):
         url = city.get("url")
@@ -68,7 +72,7 @@ def load_city_data(city_key: str) -> geopandas.GeoDataFrame:
     return _normalise(gdf, city["schema"])
 
 
-def load_region_data(region_key: str) -> geopandas.GeoDataFrame:
+def load_region_data(region_key: str, *, force_refresh: bool = False) -> geopandas.GeoDataFrame:
     """
     Return a normalised GeoDataFrame covering all cities in the given region.
 
@@ -85,7 +89,7 @@ def load_region_data(region_key: str) -> geopandas.GeoDataFrame:
     gdfs = []
     for city_key in region["cities"]:
         try:
-            gdf = load_city_data(city_key).copy()
+            gdf = load_city_data(city_key, force_refresh=force_refresh).copy()
             gdf["_city"] = city_key
             gdfs.append(gdf)
             print(f"  ✓ {CITIES[city_key]['name']} ({len(gdf)} segments)")

@@ -11,6 +11,11 @@ _GEOLOCATOR = Nominatim(user_agent="broombuster")
 
 def get_GPS_traccar():
     """Fetch the latest position for the first registered Traccar device."""
+    if not config.TRACCAR_URL:
+        raise ValueError(
+            "TRACCAR_URL not set. "
+            "Export TRACCAR_URL or add it to .env."
+        )
     if not config.TRACCAR_USERNAME or not config.TRACCAR_PASSWORD:
         raise ValueError(
             "Traccar credentials not set. "
@@ -42,8 +47,10 @@ def get_GPS_traccar():
 def get_street_info(myCar): # gets street from nearest address, problem at corners
 
     location = _GEOLOCATOR.reverse((myCar.lat, myCar.lon), exactly_one=True)
-    myStreetName = location.raw['address'].get('road')
-    raw_num = location.raw['address'].get('house_number')
+    if location is None:
+        return None, None
+    myStreetName = location.raw['address'].get('road')  # type: ignore[union-attr]
+    raw_num = location.raw['address'].get('house_number')  # type: ignore[union-attr]
     myNumber = None
     if raw_num:
         # house_number can be a range like "6321-6323"; take the first number

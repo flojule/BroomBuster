@@ -5,7 +5,7 @@ from email.mime.text import MIMEText
 import config
 
 
-def send_email(message):
+def send_email(message, urgency="today"):
     """Send a street-sweeping notification email using credentials from config/env."""
     if not config.EMAIL_SENDER or not config.EMAIL_PASSWORD:
         print("Email credentials not configured — skipping notification.")
@@ -14,7 +14,7 @@ def send_email(message):
     msg = MIMEMultipart()
     msg["From"]    = config.EMAIL_SENDER
     msg["To"]      = config.EMAIL_RECEIVER or config.EMAIL_SENDER
-    msg["Subject"] = "Street parking alert"
+    msg["Subject"] = "⚠ Street sweeping TODAY" if urgency == "today" else "Street sweeping tomorrow"
     msg.attach(MIMEText(message, "plain"))
 
     try:

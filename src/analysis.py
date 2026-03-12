@@ -1,6 +1,10 @@
 import calendar
 import datetime
+import functools
 import re
+
+import pyproj as _pyproj
+from shapely.geometry import MultiPolygon, Point, Polygon
 
 import gps
 import notification
@@ -28,7 +32,7 @@ compound_map = {
     'MWF': [0, 2, 4],
     'TTH': [1, 3],
     'TTHS': [1, 3, 5],
-    'MF': [0, 1, 2, 3, 4],
+    'MF': [0, 4],
     'E': list(range(7)),  # Every day
 }
 
@@ -42,9 +46,15 @@ ordinals = {
     '24': [2, 4],
 }
 
-def check_street_sweeping(myCar, myCity):
+# Pre-built CRS transformer reused across all calls (avoids repeated construction)
+_CRS_TRANSFORMER = _pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 
-    myCity = myCity.to_crs("EPSG:3857")
+# Module-level cache: id(gdf) → {normalized_street_name: [row_labels]}
+_name_index_cache: dict[int, dict] = {}
+
+
+def check_street_sweeping(myCar, myCity):
+    # myCity must already be projected to EPSG:3857 by the caller.
 
     # Use cached street info if get_info() was already called; otherwise fetch now
     if getattr(myCar, "street_name", None) and getattr(myCar, "streets", None):
@@ -71,17 +81,13 @@ def check_street_sweeping(myCar, myCity):
     # City key for the car's location (used to restrict no-range fallback)
     car_city = getattr(myCar, "_city", None)
 
-    def _name_matches(sec_name: str, target: str) -> bool:
-        """True when the segment name and target refer to the same street."""
-        return _norm_name(sec_name) == _norm_name(target)
+    # Name index enables O(1) street lookups instead of O(n) full iteration.
+    # The index is built once per unique GDF object and cached at module level.
+    name_idx = _get_name_index(myCity)
 
-    if myStreets and myStreetName == myStreets[0]:
-        for _, street_section in myCity.iterrows():
-            if not _is_str(street_section.get("STREET_NAME")):
-                continue
-            sec_name = street_section["STREET_NAME"]
-            if not _name_matches(sec_name, myStreetName):
-                continue
+    if myStreetName and myStreets and myStreetName == myStreets[0]:
+        for i in name_idx.get(_norm_name(myStreetName), []):
+            street_section = myCity.loc[i]
             # If the segment belongs to a different city than the car, skip it
             # unless we have address ranges to confirm a match.
             seg_city = street_section.get("_city")
@@ -97,33 +103,25 @@ def check_street_sweeping(myCar, myCity):
                 if car_city is None or seg_city is None or seg_city == car_city:
                     _collect(street_section)
 
-    elif myStreets and len(myStreets) > 1 and myStreetName == myStreets[1]:
+    elif myStreetName and myStreets and len(myStreets) > 1 and myStreetName == myStreets[1]:
         myActualStreet = myStreets[0]
-        for _, street_section in myCity.iterrows():
-            if not _is_str(street_section.get("STREET_NAME")):
-                continue
-            if _name_matches(street_section["STREET_NAME"], myActualStreet):
-                _collect(street_section)
-
-    else:
-        pass  # no segment match; zone fallback below covers area-based data
+        for i in name_idx.get(_norm_name(myActualStreet), []):
+            _collect(myCity.loc[i])
 
     # Zone/polygon fallback — for area-based datasets like Chicago ward sections.
     # If no schedule was found above, test whether the car sits inside a zone polygon.
     if not schedule_even and not schedule_odd:
-        from shapely.geometry import MultiPolygon, Point, Polygon
         if any(
             isinstance(g, (Polygon, MultiPolygon))
             for g in myCity.geometry
             if g is not None
         ):
-            import pyproj as _pyproj
-            _xfm = _pyproj.Transformer.from_crs(
-                "EPSG:4326", "EPSG:3857", always_xy=True
-            )
-            car_x, car_y = _xfm.transform(myCar.lon, myCar.lat)
+            car_x, car_y = _CRS_TRANSFORMER.transform(myCar.lon, myCar.lat)
             car_pt = Point(car_x, car_y)
-            for _, row in myCity.iterrows():
+            # Spatial index filters to candidate bounding boxes first,
+            # then exact containment is checked — much faster than iterrows.
+            for i in myCity.sindex.query(car_pt):
+                row = myCity.iloc[i]
                 g = row.geometry
                 if g is not None and not g.is_empty and g.contains(car_pt):
                     _collect(row)
@@ -151,9 +149,9 @@ def check_day_street_sweeping(schedule):
         schedule_ymd.extend(parse_sweeping_code(day[0]))
 
     if myDay in schedule_ymd:
-        return True
+        return "today"
     elif myTomorrow in schedule_ymd:
-        return True
+        return "tomorrow"
     else:
         print('No sweeping today or tomorrow\n')
         return False
@@ -172,8 +170,22 @@ def _safe_int(v):
         return None
 
 
-def get_schedule(street_section, myNumber):
-    if myNumber % 2 == 0:
+def _get_name_index(gdf) -> dict:
+    """Build and cache a {normalized_name: [row_labels]} lookup for fast street matching."""
+    gdf_id = id(gdf)
+    if gdf_id not in _name_index_cache:
+        idx: dict[str, list] = {}
+        for i, row in gdf.iterrows():
+            n = row.get("STREET_NAME")
+            if _is_str(n):
+                idx.setdefault(_norm_name(n), []).append(i)
+        _name_index_cache[gdf_id] = idx
+    return _name_index_cache[gdf_id]
+
+
+def get_schedule(street_section, side):
+    """Return a (code, desc, time) tuple for the given side (0 = even, 1 = odd)."""
+    if side % 2 == 0:
         code = street_section.get("DAY_EVEN")
         if _is_str(code):
             return (
@@ -205,10 +217,51 @@ def get_weekdays_by_ordinal(weekday, ordinals, year, month):
     dates = get_all_dates_for_weekday(weekday, year, month)
     return [dates[i - 1] for i in ordinals if i <= len(dates)]
 
-def parse_sweeping_code(code):
-    today = datetime.date.today()
-    year, month = today.year, today.month
+@functools.lru_cache(maxsize=512)
+def _parse_sweeping_code_cached(code: str, year: int, month: int) -> tuple:
+    """
+    Expand a sweep code into a tuple of dates for (year, month).
+    Results are cached; since inputs include (year, month) the cache stays
+    correct across month boundaries.
+    """
+    code = code.upper()
 
+    # Handle compound sweep codes
+    if code in compound_map:
+        return tuple(
+            d for wd in compound_map[code]
+            for d in get_all_dates_for_weekday(wd, year, month)
+        )
+
+    # Handle every <day> (e.g., 'ME' = every Mon, 'TE' = every Tues)
+    if code.endswith('E'):
+        day_code = code[:-1]
+        wd = weekday_map.get(day_code)
+        if wd is not None:
+            return tuple(get_all_dates_for_weekday(wd, year, month))
+
+    # Try matching ordinal part
+    for suffix, ordinal_list in ordinals.items():
+        if code.endswith(suffix):
+            day_code = code[:len(code) - len(suffix)]
+            wd = weekday_map.get(day_code)
+            if wd is not None:
+                return tuple(get_weekdays_by_ordinal(wd, ordinal_list, year, month))
+
+    # 'E' = every day
+    if code == 'E':
+        _, days_in_month = calendar.monthrange(year, month)
+        return tuple(datetime.date(year, month, d) for d in range(1, days_in_month + 1))
+
+    return ()  # Unknown code
+
+
+def parse_sweeping_code(code: str) -> list:
+    """
+    Expand a sweep code into a list of dates.
+    Covers the current month, plus the next month on the last day of the
+    current month so the tomorrow-check is never silently missed.
+    """
     # Chicago-style explicit date list: "DATES:2026-04-01,2026-04-02,..."
     if code.upper().startswith("DATES:"):
         return [
@@ -217,30 +270,13 @@ def parse_sweeping_code(code):
             if ds.strip()
         ]
 
-    code = code.upper()
+    today = datetime.date.today()
+    dates = list(_parse_sweeping_code_cached(code, today.year, today.month))
 
-    # Handle compound sweep codes
-    if code in compound_map:
-        return [d for wd in compound_map[code] for d in get_all_dates_for_weekday(wd, year, month)]
+    # When today is the last day of the month, tomorrow falls in the next
+    # month — expand that month too so we never miss a next-day alert.
+    tomorrow = today + datetime.timedelta(days=1)
+    if tomorrow.month != today.month:
+        dates.extend(_parse_sweeping_code_cached(code, tomorrow.year, tomorrow.month))
 
-    # Handle every <day> (e.g., 'ME' = every Mon, 'TE' = every Tues)
-    if code.endswith('E'):
-        day_code = code[:-1]
-        wd = weekday_map.get(day_code)
-        if wd is not None:
-            return get_all_dates_for_weekday(wd, year, month)
-
-    # Try matching ordinal part
-    for suffix, ordinal_list in ordinals.items():
-        if code.endswith(suffix):
-            day_code = code[:len(code) - len(suffix)]
-            wd = weekday_map.get(day_code)
-            if wd is not None:
-                return get_weekdays_by_ordinal(wd, ordinal_list, year, month)
-
-    # 'E' = every day
-    if code == 'E':
-        _, days_in_month = calendar.monthrange(year, month)
-        return [datetime.date(year, month, d) for d in range(1, days_in_month + 1)]
-
-    return []  # Unknown code
+    return dates
