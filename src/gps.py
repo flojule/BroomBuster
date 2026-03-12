@@ -94,7 +94,7 @@ def get_nearby_streets(myCar):
     return myStreets
 
 
-def get_distance_point_line(point, point1, point2): # input gps coord
+def get_distance_point_line(point, point1, point2):  # points are projected (EPSG:3857)
 
     d12 = np.sqrt((point2[1] - point1[1])**2 + (point2[0] - point1[0])**2)
     area = np.abs(
@@ -108,14 +108,27 @@ def get_distance_point_line(point, point1, point2): # input gps coord
     return distance
 
 def get_distance_point_polyline(point, polyline):
-    distance = float('inf')
+    if len(polyline) < 2:
+        return float('inf')
 
-    for i in range(len(polyline) - 1):
-        point1 = _TRANSFORMER.transform(polyline[i]['lon'], polyline[i]['lat'])
-        point2 = _TRANSFORMER.transform(polyline[i + 1]['lon'], polyline[i + 1]['lat'])
-        distance_temp = get_distance_point_line(point, point1, point2)
-        distance = min(distance, distance_temp)
+    # Batch-transform all vertices in one pyproj call instead of one per vertex.
+    lons = np.array([v['lon'] for v in polyline])
+    lats = np.array([v['lat'] for v in polyline])
+    xs, ys = _TRANSFORMER.transform(lons, lats)
+    pts = np.column_stack([xs, ys])  # shape (N, 2)
 
-    return distance
+    # Vectorised point-to-segment distances across all segments at once.
+    p1s = pts[:-1]  # segment starts, shape (N-1, 2)
+    p2s = pts[1:]   # segment ends,   shape (N-1, 2)
+    d12 = np.hypot(p2s[:, 1] - p1s[:, 1], p2s[:, 0] - p1s[:, 0])
+    areas = np.abs(
+        (p2s[:, 1] - p1s[:, 1]) * point[0]
+        - (p2s[:, 0] - p1s[:, 0]) * point[1]
+        + p2s[:, 0] * p1s[:, 1]
+        - p2s[:, 1] * p1s[:, 0]
+    )
+    with np.errstate(divide="ignore", invalid="ignore"):
+        dists = np.where(d12 > 0, areas / d12, np.inf)
+    return float(np.min(dists))
 
 

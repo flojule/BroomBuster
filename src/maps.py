@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 
+import numpy as np
 import plotly.graph_objects as go
 import shapely
 
@@ -152,57 +153,24 @@ def _zone_fill_color(w: int, s: int, urgency: str):
     return fill, border, name
 
 
-def _interior_points(geom, max_pts: int = 16):
-    """
-    Return a list of (lat, lon) points guaranteed to lie inside *geom*.
-    Uses a coarse grid over the bounding box, filtered by containment, with a
-    hard cap so large polygons don't generate thousands of markers.
-    Always includes representative_point() as a fast, guaranteed fallback.
-    """
-    pts = []
-    polys = (
-        list(geom.geoms)
-        if isinstance(geom, shapely.geometry.MultiPolygon)
-        else [geom]
-    )
-    for poly in polys:
-        rp = poly.representative_point()
-        pts.append((rp.y, rp.x))
-        minx, miny, maxx, maxy = poly.bounds
-        w, h = maxx - minx, maxy - miny
-        # Choose a grid resolution that gives ~16 cells per polygon
-        n = max(2, int((max_pts ** 0.5)))
-        xs = [minx + (i + 0.5) * w / n for i in range(n)]
-        ys = [miny + (j + 0.5) * h / n for j in range(n)]
-        for x in xs:
-            for y in ys:
-                if len(pts) >= max_pts:
-                    break
-                p = shapely.geometry.Point(x, y)
-                if poly.contains(p):
-                    pts.append((y, x))
-            if len(pts) >= max_pts:
-                break
-    return pts
-
-
 def _densify(xs, ys, max_step=0.0003):
     """
     Insert intermediate points between every pair of vertices so that hover
     events fire anywhere along the line, not just at the original vertices.
     max_step is in degrees (~30 m at 37 N).
     """
-    out_x, out_y = [xs[0]], [ys[0]]
-    for i in range(1, len(xs)):
-        dx = xs[i] - xs[i - 1]
-        dy = ys[i] - ys[i - 1]
-        n  = max(1, int(((dx * dx + dy * dy) ** 0.5) / max_step))
-        for j in range(1, n):
-            t = j / n
-            out_x.append(xs[i - 1] + t * dx)
-            out_y.append(ys[i - 1] + t * dy)
-        out_x.append(xs[i])
-        out_y.append(ys[i])
+    xs = np.asarray(xs, dtype=float)
+    ys = np.asarray(ys, dtype=float)
+    dx = np.diff(xs)
+    dy = np.diff(ys)
+    segs = np.maximum(1, (np.hypot(dx, dy) / max_step).astype(int))
+
+    out_x = [xs[0]]
+    out_y = [ys[0]]
+    for i, n in enumerate(segs):
+        ts = np.linspace(0, 1, n + 1)[1:]   # skip t=0 (already added)
+        out_x.extend((xs[i] + ts * dx[i]).tolist())
+        out_y.extend((ys[i] + ts * dy[i]).tolist())
     return out_x, out_y
 
 
@@ -297,6 +265,11 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
 
     _POLY_TYPES = (shapely.geometry.Polygon, shapely.geometry.MultiPolygon)
 
+    # Pre-compute urgency color for every row once; reused in all three passes.
+    _row_color: dict = {}
+    for _idx, _row in myCity_.iterrows():
+        _row_color[_idx] = _sweeping_color(_row)
+
     def _hover_side(desc, time, label):
         """Format one side of the hover: omit time if already in the description."""
         d, t = _safe(desc), _safe(time)
@@ -329,7 +302,7 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
         if not isinstance(geom, _POLY_TYPES):
             continue
 
-        color = _sweeping_color(row)
+        color = _row_color[_]
         try:
             w = int(float(row.get("ward_id") or row.get("ward") or 0))
             s = int(float(row.get("section_id") or row.get("section") or 0))
@@ -379,7 +352,7 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
             continue
         if isinstance(geom, _POLY_TYPES):
             continue
-        pri = _PRIORITY[_sweeping_color(row)]
+        pri = _PRIORITY[_row_color[_]]
         for x, y in _geom_lines(geom):
             x, y = list(x), list(y)
             k = _seg_key(x, y)
@@ -394,7 +367,7 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
             continue
         if isinstance(geom, _POLY_TYPES):
             continue
-        color = _sweeping_color(row)
+        color = _row_color[_]
         pri   = _PRIORITY[color]
         de  = _safe(row.get("DESC_EVEN"))
         te  = _safe(row.get("TIME_EVEN"))

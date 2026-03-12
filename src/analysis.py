@@ -51,6 +51,8 @@ _CRS_TRANSFORMER = _pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always
 
 # Module-level cache: id(gdf) → {normalized_street_name: [row_labels]}
 _name_index_cache: dict[int, dict] = {}
+# Module-level cache: id(gdf) → bool (True if any polygon geometry present)
+_has_polygons_cache: dict[int, bool] = {}
 
 
 def check_street_sweeping(myCar, myCity):
@@ -111,11 +113,14 @@ def check_street_sweeping(myCar, myCity):
     # Zone/polygon fallback — for area-based datasets like Chicago ward sections.
     # If no schedule was found above, test whether the car sits inside a zone polygon.
     if not schedule_even and not schedule_odd:
-        if any(
-            isinstance(g, (Polygon, MultiPolygon))
-            for g in myCity.geometry
-            if g is not None
-        ):
+        gdf_id = id(myCity)
+        if gdf_id not in _has_polygons_cache:
+            _has_polygons_cache[gdf_id] = any(
+                isinstance(g, (Polygon, MultiPolygon))
+                for g in myCity.geometry
+                if g is not None
+            )
+        if _has_polygons_cache[gdf_id]:
             car_x, car_y = _CRS_TRANSFORMER.transform(myCar.lon, myCar.lat)
             car_pt = Point(car_x, car_y)
             # Spatial index filters to candidate bounding boxes first,
@@ -143,10 +148,10 @@ def check_street_sweeping(myCar, myCity):
 def check_day_street_sweeping(schedule):
     myDay = datetime.date.today()
     myTomorrow = myDay + datetime.timedelta(days=1)
-    schedule_ymd = []
+    schedule_ymd: set = set()
 
     for day in schedule:
-        schedule_ymd.extend(parse_sweeping_code(day[0]))
+        schedule_ymd.update(parse_sweeping_code(day[0]))
 
     if myDay in schedule_ymd:
         return "today"

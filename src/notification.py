@@ -18,11 +18,10 @@ def send_email(message, urgency="today"):
     msg.attach(MIMEText(message, "plain"))
 
     try:
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(config.EMAIL_SENDER, config.EMAIL_PASSWORD)
-        server.send_message(msg)
-        server.quit()
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(config.EMAIL_SENDER, config.EMAIL_PASSWORD)
+            server.send_message(msg)
         print("Notification email sent.")
     except Exception as e:
         print(f"Failed to send email: {e}")

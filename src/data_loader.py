@@ -204,34 +204,6 @@ _SF_DAY_LABEL = {
 }
 
 
-def _sf_code(row, day_col, week_cols) -> str | None:
-    """Convert an SF row's week_day + week_N_of_month flags to an Oakland code."""
-    raw = str(row.get(day_col, "")).strip().lower() if day_col else ""
-    letter = _SF_DAY_MAP.get(raw)
-    if not letter:
-        return None
-    on = [
-        n for n, wc in week_cols
-        if wc and str(row.get(wc, "0")).strip() in ("1", "1.0", "true", "True")
-    ]
-    if not on or set(on) >= {1, 2, 3, 4}:
-        return letter + "E"  # every week
-    return letter + "".join(str(w) for w in sorted(on))
-
-
-def _sf_time(row, fh_col, th_col) -> str:
-    try:
-        fh = int(float(row.get(fh_col, "")))
-        th = int(float(row.get(th_col, "")))
-
-        def fmt(h):
-            return f"{h % 12 or 12}{'AM' if h < 12 else 'PM'}"
-
-        return f"{fmt(fh)}–{fmt(th)}"
-    except (TypeError, ValueError):
-        return "N/A"
-
-
 def _sf_desc(code, time) -> str:
     if not isinstance(code, str):
         return "N/A"
@@ -245,6 +217,8 @@ def _sf_desc(code, time) -> str:
 
 
 def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
+    import pandas as pd
+
     out = gdf.copy()
 
     # Case-insensitive column lookup
@@ -266,34 +240,76 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     out["STREET_NAME"] = (
         out[name_col].fillna("").str.strip().str.upper() if name_col else ""
     )
-    for cn in ("DAY_EVEN", "DAY_ODD", "DESC_EVEN", "DESC_ODD",
-               "TIME_EVEN", "TIME_ODD"):
-        out[cn] = None
     for addr_cn in ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD"):
         out[addr_cn] = np.nan
 
-    for idx, row in out.iterrows():
-        code = _sf_code(row, day_col, week_cols)
-        time = _sf_time(row, fh_col, th_col)
-        desc = _sf_desc(code, time)
-        # SF blockside uses compass directions ("SouthEast", "West", …) which
-        # don't map to even/odd.  Treat anything that isn't explicitly EVEN or
-        # ODD as applying to BOTH sides.
-        raw_side = str(row.get(side_col, "") if side_col else "").upper()
-        if raw_side == "EVEN":
-            side = "EVEN"
-        elif raw_side == "ODD":
-            side = "ODD"
+    # -----------------------------------------------------------------------
+    # Vectorised derivation of code / time / desc / side — avoids iterrows.
+    # -----------------------------------------------------------------------
+    # --- DAY code (letter + ordinal suffix) ---
+    raw_day = (
+        out[day_col].fillna("").astype(str).str.strip().str.lower()
+        if day_col
+        else pd.Series("", index=out.index)
+    )
+    letter_series = raw_day.map(_SF_DAY_MAP).fillna("")  # "" where unmapped
+
+    # Determine ordinal suffix from week_N_of_month flags (vectorised)
+    on_flags = pd.DataFrame(index=out.index)
+    for n, wc in week_cols:
+        if wc:
+            on_flags[n] = out[wc].astype(str).str.strip().isin(["1", "1.0", "true", "True"])
         else:
-            side = "BOTH"
-        if side in ("EVEN", "BOTH"):
-            out.at[idx, "DAY_EVEN"]  = code
-            out.at[idx, "DESC_EVEN"] = desc
-            out.at[idx, "TIME_EVEN"] = time
-        if side in ("ODD", "BOTH"):
-            out.at[idx, "DAY_ODD"]  = code
-            out.at[idx, "DESC_ODD"] = desc
-            out.at[idx, "TIME_ODD"] = time
+            on_flags[n] = False
+    # Build suffix: "E" if no flags or all 4 set; else sorted digit string
+    def _suffix(row_flags):
+        on = [n for n, v in row_flags.items() if v]
+        if not on or set(on) >= {1, 2, 3, 4}:
+            return "E"
+        return "".join(str(w) for w in sorted(on))
+    suffix_series = on_flags.apply(_suffix, axis=1)
+    code_series   = (letter_series + suffix_series).where(letter_series != "", other=None)
+
+    # --- TIME string ---
+    def _fmt_h(h):
+        return f"{h % 12 or 12}{'AM' if h < 12 else 'PM'}"
+    if fh_col and th_col:
+        fh_num = pd.to_numeric(out[fh_col], errors="coerce")
+        th_num = pd.to_numeric(out[th_col], errors="coerce")
+        valid  = fh_num.notna() & th_num.notna()
+        fh_int = fh_num.fillna(0).astype(int)
+        th_int = th_num.fillna(0).astype(int)
+        time_series = pd.Series(
+            [
+                f"{_fmt_h(f)}–{_fmt_h(t)}" if v else "N/A"
+                for f, t, v in zip(fh_int, th_int, valid)
+            ],
+            index=out.index,
+            dtype=object,
+        )
+    else:
+        time_series = pd.Series("N/A", index=out.index, dtype=object)
+
+    # --- DESC string ---
+    desc_series = pd.Series(
+        [_sf_desc(c, t) for c, t in zip(code_series, time_series)],
+        index=out.index,
+        dtype=object,
+    )
+
+    # --- Side classification ---
+    raw_side = (out[side_col].fillna("").astype(str).str.upper() if side_col
+                else pd.Series("", index=out.index))
+    is_even = raw_side == "EVEN"
+    is_odd  = raw_side == "ODD"
+    is_both = ~is_even & ~is_odd
+
+    out["DAY_EVEN"]  = code_series.where(is_even | is_both, other=None)
+    out["DAY_ODD"]   = code_series.where(is_odd  | is_both, other=None)
+    out["DESC_EVEN"] = desc_series.where(is_even | is_both, other=None)
+    out["DESC_ODD"]  = desc_series.where(is_odd  | is_both, other=None)
+    out["TIME_EVEN"] = time_series.where(is_even | is_both, other=None)
+    out["TIME_ODD"]  = time_series.where(is_odd  | is_both, other=None)
 
     return out
 
@@ -324,6 +340,7 @@ def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
         8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov",
     }
     today_year = _dt.date.today().year
+    today      = _dt.date.today()
 
     # Normalise column names to lowercase for consistent access.
     out = gdf.copy()
@@ -352,7 +369,6 @@ def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
         code = f"DATES:{','.join(iso_parts)}"
         # Build DESC: show every date that falls within the next 2 months
         # that have sweeping (typically 4 dates, e.g. "Apr 17, 18; May 15, 16").
-        today = _dt.date.today()
         future_months: list = []
         for ds in sorted(iso_parts):
             d = _dt.date.fromisoformat(ds)
