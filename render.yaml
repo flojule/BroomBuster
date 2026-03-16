@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: broombuster
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: SUPABASE_URL
+        sync: false          # set manually in Render dashboard
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: EMAIL_SENDER
+        sync: false
+      - key: EMAIL_RECEIVER
+        sync: false
+      - key: EMAIL_PASSWORD
+        sync: false
+      # Set DEV_MODE=true locally to skip JWT verification during development
+      - key: DEV_MODE
+        value: false
+    healthCheckPath: /health

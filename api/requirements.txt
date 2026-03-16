@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+PyJWT
+cryptography
+supabase
+httpx

@@ -25,6 +25,7 @@ CITIES = {
         # Bundled in the repo; no automatic download.
         "url": None,
         "schema": "oakland",
+        "bbox": [37.69, -122.38, 37.90, -122.11],
     },
 
     "san_francisco": {
@@ -40,6 +41,7 @@ CITIES = {
             "?$limit=200000"
         ),
         "schema": "sf",
+        "bbox": [37.70, -122.53, 37.84, -122.35],
     },
 
     "berkeley": {
@@ -52,6 +54,7 @@ CITIES = {
         # Run the script once (needs the PDFs in data/berkeley/) to produce the GeoJSON.
         "url": None,
         "schema": "berkeley",
+        "bbox": [37.84, -122.32, 37.91, -122.23],
     },
 
     "alameda": {
@@ -64,6 +67,7 @@ CITIES = {
         # Save the PDF as data/alameda/street-sweeping-schedule.pdf, then run the script.
         "url": None,
         "schema": "alameda",
+        "bbox": [37.73, -122.33, 37.79, -122.21],
     },
 
     # ------------------------------------------------------------------

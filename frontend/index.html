@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>BroomBuster</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="BroomBuster">
+  <meta name="theme-color" content="#2563eb">
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --blue: #2563eb; --red: #ef4444;
+      --bg: #f8fafc; --card: #ffffff; --text: #1e293b;
+      --muted: #64748b; --border: #e2e8f0;
+    }
+    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+
+    /* ── Auth ── */
+    #auth-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100dvh; padding: 24px; }
+    #auth-screen h1 { font-size: 2rem; font-weight: 700; margin-bottom: 6px; }
+    #auth-screen p.tagline { color: var(--muted); margin-bottom: 32px; text-align: center; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 28px; width: 100%; max-width: 380px; box-shadow: 0 4px 20px rgba(0,0,0,.06); }
+    .card h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 20px; }
+    label { display: block; font-size: .85rem; font-weight: 500; color: var(--muted); margin-bottom: 4px; margin-top: 14px; }
+    input[type=email], input[type=password] { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; outline: none; transition: border-color .15s; }
+    input:focus { border-color: var(--blue); }
+    button { display: block; width: 100%; padding: 12px; margin-top: 20px; background: var(--blue); color: #fff; border: none; border-radius: 10px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: opacity .15s; }
+    button:disabled { opacity: .5; cursor: default; }
+    button:not(:disabled):hover { opacity: .9; }
+    .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); margin-top: 10px; font-weight: 500; }
+    #auth-error { color: var(--red); font-size: .85rem; margin-top: 10px; min-height: 18px; }
+
+    /* ── App ── */
+    #app-screen { display: none; flex-direction: column; height: 100dvh; }
+
+    /* ── Topbar ── */
+    #topbar {
+      display: flex; align-items: center; gap: 5px;
+      padding: 6px 10px; background: var(--card);
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+      overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch;
+    }
+    .app-title { font-size: .88rem; font-weight: 700; flex-shrink: 0; }
+    .tb-sep { color: var(--border); flex-shrink: 0; }
+    .tb-select { font-size: .78rem; border: 1px solid var(--border); border-radius: 6px; padding: 3px 5px; background: var(--bg); color: var(--text); outline: none; flex-shrink: 0; }
+    #region-select { max-width: 90px; }
+    #car-select    { max-width: 120px; }
+    #status-text   { flex: 1; font-size: .78rem; font-weight: 600; text-align: center; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; min-width: 60px; }
+    #status-text.today    { color: #b91c1c; }
+    #status-text.tomorrow { color: #c2410c; }
+    #status-text.safe     { color: #1d4ed8; }
+    #status-text.idle     { color: var(--muted); }
+    .tb-btn { width: auto; padding: 4px 9px; margin: 0; font-size: .75rem; font-weight: 600; border-radius: 6px; flex-shrink: 0; }
+    #btn-logout  { background: transparent; color: var(--muted); border: 1px solid var(--border); font-weight: 500; }
+    #btn-locate        { background: var(--card); color: var(--muted); border: 1px solid var(--border); }
+    #btn-locate.ip     { background: #eef1f7; color: #94a3b8; border-color: #d1d9ea; }
+    #btn-locate.gps    { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+    /* ── Map container ── */
+    #map-container { flex: 1; min-height: 0; position: relative; }
+    #map { width: 100%; height: 100%; }
+
+    /* ── Place banner (floating pill, drag-map mode) ── */
+    #place-banner {
+      position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+      z-index: 20; display: none; align-items: center; gap: 8px;
+      background: rgba(37,99,235,.92); color: #fff;
+      border-radius: 20px; padding: 7px 14px;
+      font-size: .82rem; font-weight: 600;
+      box-shadow: 0 2px 12px rgba(0,0,0,.25);
+      white-space: nowrap; pointer-events: auto;
+    }
+    #place-banner.active { display: flex; }
+    #btn-place-here {
+      width: auto; margin: 0; padding: 4px 12px;
+      background: #fff; color: var(--blue);
+      border: none; border-radius: 12px;
+      font-size: .78rem; font-weight: 700;
+    }
+    #btn-cancel-place {
+      width: auto; margin: 0; padding: 3px 10px;
+      background: rgba(255,255,255,.2); color: #fff;
+      border: 1px solid rgba(255,255,255,.4); border-radius: 12px;
+      font-size: .75rem; font-weight: 500;
+    }
+
+    /* ── Crosshair overlay (shown during drag-to-place) ── */
+    #crosshair {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none; display: none; z-index: 15;
+      font-size: 40px; line-height: 1; color: var(--blue);
+      text-shadow: 0 0 6px #fff, 0 0 3px #fff;
+    }
+    #crosshair.visible { display: block; }
+
+    /* ── Context menu (right-click) ── */
+    #ctx-menu {
+      position: fixed; z-index: 200; display: none;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 7px; box-shadow: 0 3px 10px rgba(0,0,0,.13);
+      overflow: hidden; min-width: 120px;
+    }
+    .ctx-item { padding: 6px 12px; cursor: pointer; font-size: .88rem; }
+    .ctx-item:hover { background: var(--bg); }
+
+    /* ── Car info popup (click on car marker) ── */
+    #car-popup {
+      position: absolute; top: 10px; right: 10px; z-index: 20;
+      display: none; flex-direction: column; gap: 8px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 14px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.15); min-width: 180px;
+    }
+    #car-popup.visible { display: flex; }
+    .popup-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+    .popup-name-wrap { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: .88rem; }
+    #btn-popup-rename {
+      width: auto; margin: 0; padding: 2px 6px;
+      background: transparent; color: var(--muted); border: none;
+      font-size: .75rem; border-radius: 4px;
+    }
+    #btn-popup-close {
+      width: auto; margin: 0; padding: 2px 6px;
+      background: transparent; color: var(--muted); border: none; font-size: .9rem;
+    }
+    #popup-name-input {
+      width: 100%; padding: 6px 8px; border: 1px solid var(--blue);
+      border-radius: 6px; font-size: .88rem; outline: none; display: none;
+    }
+    .popup-actions { display: flex; flex-direction: column; gap: 5px; }
+    .popup-actions button {
+      width: 100%; margin: 0; padding: 6px 10px; font-size: .78rem; font-weight: 500;
+      border-radius: 8px; text-align: left;
+    }
+    #btn-popup-gps    { background: var(--blue); color: #fff; border: none; }
+    #btn-popup-manual { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    #btn-popup-addr   { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    #btn-popup-remove { background: transparent; color: #b91c1c; border: 1px solid #fca5a5; }
+    #popup-addr-wrap { display: flex; gap: 5px; margin-top: 2px; }
+    #popup-addr-input {
+      flex: 1; padding: 6px 8px; border: 1px solid var(--border);
+      border-radius: 6px; font-size: .82rem; outline: none;
+    }
+    #popup-addr-input:focus { border-color: var(--blue); }
+    #btn-popup-addr-go {
+      width: auto; margin: 0; padding: 5px 10px; background: var(--blue);
+      color: #fff; border: none; border-radius: 6px; font-size: .82rem;
+    }
+    /* ── Schedule info inside popup ── */
+    #popup-schedule { font-size: .78rem; color: var(--text); line-height: 1.5; margin-bottom: 4px; }
+    #popup-schedule:empty { display: none; }
+    .sched-row { padding: 1px 0; }
+    .sched-row.hl { font-weight: 700; color: #b91c1c; }
+
+    /* ── Inline name panel (no overlay shading) ── */
+    #name-panel {
+      position: fixed; z-index: 150; display: none;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 8px 10px; width: 155px;
+      box-shadow: 0 3px 14px rgba(0,0,0,.16);
+    }
+    #name-panel-input { width: 100%; padding: 5px 7px; border: 1px solid var(--border); border-radius: 6px; font-size: .85rem; outline: none; }
+    #name-panel-input:focus { border-color: var(--blue); }
+    .np-btns { display: flex; gap: 5px; margin-top: 6px; }
+    .np-btns button { flex: 1; margin: 0; padding: 5px; font-size: .78rem; border-radius: 6px; }
+    #btn-np-cancel { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+
+    /* ── Spinner ── */
+    .spinner { width: 11px; height: 11px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; vertical-align: middle; margin-right: 3px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════ AUTH SCREEN ══════════════════ -->
+<div id="auth-screen">
+  <h1>🧹 BroomBuster</h1>
+  <p class="tagline">Know before the grim sweeper comes.</p>
+  <div class="card">
+    <h2>Sign in</h2>
+    <label for="email">Email</label>
+    <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
+    <label for="password">Password</label>
+    <input type="password" id="password" placeholder="••••••••" autocomplete="current-password">
+    <div id="auth-error"></div>
+    <button id="btn-login">Sign in</button>
+    <button class="btn-ghost" id="btn-signup">Create account</button>
+  </div>
+</div>
+
+<!-- ══════════════════ APP SCREEN ══════════════════ -->
+<div id="app-screen">
+  <div id="topbar">
+    <span class="app-title">🧹 BroomBuster</span>
+    <span class="tb-sep">|</span>
+    <select id="region-select" class="tb-select"></select>
+    <select id="car-select" class="tb-select"></select>
+    <span class="tb-sep">|</span>
+    <span id="status-text" class="idle">—</span>
+    <button id="btn-locate" class="tb-btn" title="Use GPS location">📍</button>
+    <button id="btn-logout" class="tb-btn">Sign out</button>
+  </div>
+  <div id="map-container">
+    <div id="map"></div>
+
+    <!-- Crosshair target (center of map during drag-to-place) -->
+    <div id="crosshair">＋</div>
+
+    <!-- Floating pill shown during car placement -->
+    <div id="place-banner">
+      Move map to your car →
+      <button id="btn-place-here">Place here</button>
+      <button id="btn-cancel-place">Cancel</button>
+    </div>
+
+    <!-- Right-click context menu -->
+    <div id="ctx-menu">
+      <div class="ctx-item" id="ctx-add-car">+ Add car here</div>
+    </div>
+
+    <!-- Car info popup (shown when clicking car marker) -->
+    <div id="car-popup">
+      <div class="popup-header">
+        <div class="popup-name-wrap">
+          <span id="popup-car-name"></span>
+          <button id="btn-popup-rename" title="Edit name">✏️</button>
+        </div>
+        <button id="btn-popup-close">✕</button>
+      </div>
+      <input type="text" id="popup-name-input" placeholder="Car name" maxlength="32">
+      <div id="popup-schedule"></div>
+      <div class="popup-actions">
+        <button id="btn-popup-gps">📍 Update to GPS</button>
+        <button id="btn-popup-manual">🗺 Update manually</button>
+        <button id="btn-popup-addr">📬 Enter address</button>
+        <button id="btn-popup-remove">🗑 Remove car</button>
+      </div>
+      <div id="popup-addr-wrap" style="display:none">
+        <input type="text" id="popup-addr-input" placeholder="123 Main St, Oakland CA">
+        <button id="btn-popup-addr-go">→</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ INLINE NAME PANEL ══════════════════ -->
+<div id="name-panel">
+  <input type="text" id="name-panel-input" placeholder="Name…" maxlength="32">
+  <div class="np-btns">
+    <button id="btn-np-cancel">Cancel</button>
+    <button id="btn-np-save">Save</button>
+  </div>
+</div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+const SUPABASE_URL  = window.SUPABASE_URL  || 'https://bebepoowtumqmzwlydeu.supabase.co';
+const SUPABASE_ANON = window.SUPABASE_ANON || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJlYmVwb293dHVtcW16d2x5ZGV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MDg2ODEsImV4cCI6MjA4OTE4NDY4MX0.BHZ2EiFN1-GiM7QEsxnqMB8oVI1Jzl1LH3D-y230nk4';
+
+const DEFAULT_CENTER = { lat: 37.820, lon: -122.295, zoom: 11 };
+
+// ── Supabase ──────────────────────────────────────────────────────────────────
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let session        = null;
+let cars           = [];
+let activeCarId    = null;
+let regions        = {};
+let placingCar     = false;
+let placingEditId  = null;
+let pendingLat     = null, pendingLon = null;
+let popupCarId     = null;
+let carSchedules   = {};    // carId → /check response (urgency, schedule_even, schedule_odd, address, car_side)
+let _carTraceIdxs  = [];
+let _tempPinIdxs   = [];
+let _ctxScreenX    = 0, _ctxScreenY = 0;
+let _locationKnown = false;
+
+// ── DOM ───────────────────────────────────────────────────────────────────────
+const authScreen     = document.getElementById('auth-screen');
+const appScreen      = document.getElementById('app-screen');
+const emailEl        = document.getElementById('email');
+const passwordEl     = document.getElementById('password');
+const authError      = document.getElementById('auth-error');
+const btnLogin       = document.getElementById('btn-login');
+const btnSignup      = document.getElementById('btn-signup');
+const btnLogout      = document.getElementById('btn-logout');
+const btnLocate      = document.getElementById('btn-locate');
+const regionSelect   = document.getElementById('region-select');
+const carSelect      = document.getElementById('car-select');
+const statusText     = document.getElementById('status-text');
+const mapDiv         = document.getElementById('map');
+const placeBanner    = document.getElementById('place-banner');
+const crosshair      = document.getElementById('crosshair');
+const btnPlaceHere   = document.getElementById('btn-place-here');
+const btnCancelPlace = document.getElementById('btn-cancel-place');
+const ctxMenu        = document.getElementById('ctx-menu');
+const ctxAddCar      = document.getElementById('ctx-add-car');
+const carPopup       = document.getElementById('car-popup');
+const popupCarName   = document.getElementById('popup-car-name');
+const popupNameInput = document.getElementById('popup-name-input');
+const btnPopupRename = document.getElementById('btn-popup-rename');
+const btnPopupClose  = document.getElementById('btn-popup-close');
+const btnPopupGps    = document.getElementById('btn-popup-gps');
+const btnPopupManual = document.getElementById('btn-popup-manual');
+const btnPopupAddr   = document.getElementById('btn-popup-addr');
+const btnPopupRemove = document.getElementById('btn-popup-remove');
+const popupAddrWrap  = document.getElementById('popup-addr-wrap');
+const popupAddrInput = document.getElementById('popup-addr-input');
+const btnPopupAddrGo = document.getElementById('btn-popup-addr-go');
+const namePanel      = document.getElementById('name-panel');
+const namePanelInput = document.getElementById('name-panel-input');
+const btnNpCancel    = document.getElementById('btn-np-cancel');
+const btnNpSave      = document.getElementById('btn-np-save');
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+sb.auth.getSession().then(({ data }) => {
+  session = data.session;
+  session ? initApp() : showAuth();
+});
+sb.auth.onAuthStateChange((_e, s) => {
+  const wasNull = !session;
+  session = s;
+  if (s && wasNull) initApp();
+  if (!s) showAuth();
+});
+
+function showAuth() {
+  authScreen.style.display = 'flex';
+  appScreen.style.display  = 'none';
+}
+
+async function initApp() {
+  authScreen.style.display = 'none';
+  appScreen.style.display  = 'flex';
+  updateCarSelect();
+  renderDefaultMap();
+  await loadCities();
+  await loadPrefs();   // populates cars[]
+  if (cars.length > 0) {
+    activeCarId = cars[0].id;
+    updateCarSelect();
+    setNearestRegion(cars[0].lat, cars[0].lon);
+    await checkCarWithRender(cars[0]);
+    for (const car of cars.slice(1)) checkCarSilently(car);
+  } else {
+    // No saved cars — try IP geolocation to load the right area
+    setStatus('idle', 'Loading map…');
+    const loc = await getIPLocation();
+    if (loc) {
+      setNearestRegion(loc.lat, loc.lon);
+      await loadAreaMap(loc.lat, loc.lon, 13); // IP = neighbourhood zoom
+    } else {
+      setStatus('idle', 'Select a region or add a car to load the map.');
+    }
+  }
+}
+
+// ── Auth forms ────────────────────────────────────────────────────────────────
+async function login() {
+  authError.textContent = '';
+  btnLogin.disabled = true;
+  btnLogin.innerHTML = '<span class="spinner"></span>Signing in…';
+  const { error } = await sb.auth.signInWithPassword({ email: emailEl.value.trim(), password: passwordEl.value });
+  btnLogin.disabled = false;
+  btnLogin.textContent = 'Sign in';
+  if (error) authError.textContent = error.message;
+}
+
+async function signup() {
+  authError.textContent = '';
+  btnSignup.disabled = true;
+  btnSignup.innerHTML = '<span class="spinner"></span>Creating account…';
+  const { error } = await sb.auth.signUp({ email: emailEl.value.trim(), password: passwordEl.value });
+  btnSignup.disabled = false;
+  btnSignup.textContent = 'Create account';
+  if (error) {
+    authError.textContent = error.message;
+  } else {
+    authError.style.color = '#16a34a';
+    authError.textContent = 'Check your email to confirm, then sign in.';
+  }
+}
+
+btnLogin.addEventListener('click', login);
+btnSignup.addEventListener('click', signup);
+[emailEl, passwordEl].forEach(el => el.addEventListener('keydown', e => { if (e.key === 'Enter') login(); }));
+btnLogout.addEventListener('click', () => sb.auth.signOut());
+
+// ── Map helpers ───────────────────────────────────────────────────────────────
+function getMapboxMap() {
+  try { return mapDiv._fullLayout.mapbox._subplot.map; }
+  catch (_) { return null; }
+}
+
+function defaultCarName() {
+  const used = new Set(cars.map(c => c.name));
+  if (!used.has('Car')) return 'Car';
+  let i = 2;
+  while (used.has(`Car ${i}`)) i++;
+  return `Car ${i}`;
+}
+
+function latLonToScreen(lat, lon) {
+  const mbMap = getMapboxMap();
+  if (!mbMap) return null;
+  const rect = mapDiv.getBoundingClientRect();
+  const px = mbMap.project([lon, lat]);
+  return { x: rect.left + px.x, y: rect.top + px.y };
+}
+
+// source: 'gps' | 'ip' | false
+function setLocationKnown(source) {
+  _locationKnown = !!source;
+  btnLocate.classList.remove('ip', 'gps');
+  if (source) btnLocate.classList.add(source);
+}
+
+function screenToLatLon(clientX, clientY) {
+  const mbMap = getMapboxMap();
+  if (!mbMap) return null;
+  const rect = mapDiv.getBoundingClientRect();
+  const ll = mbMap.unproject([clientX - rect.left, clientY - rect.top]);
+  return { lat: ll.lat, lon: ll.lng };
+}
+
+// ── Map contextmenu (right-click to add car) ─────────────────────────────────
+mapDiv.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const pos = screenToLatLon(e.clientX, e.clientY);
+  if (!pos) return;
+  pendingLat = pos.lat;
+  pendingLon = pos.lon;
+  showCtxMenu(e.clientX, e.clientY);
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#ctx-menu')) hideCtxMenu();
+});
+
+// ── Default map ───────────────────────────────────────────────────────────────
+function renderDefaultMap() {
+  Plotly.newPlot(mapDiv, [], {
+    mapbox: { style: 'open-street-map', center: { lat: DEFAULT_CENTER.lat, lon: DEFAULT_CENTER.lon }, zoom: DEFAULT_CENTER.zoom },
+    margin: { r: 0, t: 0, l: 0, b: 0 },
+  }, { scrollZoom: true, displayModeBar: false, responsive: true }).then(attachPlotlyListeners);
+}
+
+let _renderedRegion = null;
+
+function renderMap(figure) {
+  if (!figure || !figure.data) return;
+  _carTraceIdxs = [];
+  const region = regionSelect.value;
+  // Use newPlot when switching regions (clears stale polygon fills, e.g. Chicago).
+  // Use react for same-region updates — preserves OSM tile cache → much faster.
+  const fn = (region !== _renderedRegion) ? Plotly.newPlot : Plotly.react;
+  _renderedRegion = region;
+  fn(mapDiv, figure.data, figure.layout, {
+    scrollZoom: true, displayModeBar: false, responsive: true,
+  }).then(() => { attachPlotlyListeners(); overlayCarMarkers(); });
+}
+
+// Add/refresh car markers as Plotly traces on the existing map.
+// Two traces per car (outer dark ring + coloured inner dot) to match the backend style.
+function overlayCarMarkers() {
+  if (!mapDiv.data) return;
+  if (_carTraceIdxs.length) {
+    try { Plotly.deleteTraces(mapDiv, [..._carTraceIdxs].sort((a,b) => b-a)); } catch (_) {}
+    _carTraceIdxs = [];
+  }
+  if (!cars.length) return;
+
+  const urgencyColor = u => u === 'today' ? 'tomato' : u === 'tomorrow' ? 'orange' : 'cornflowerblue';
+  const ringTraces = cars.map(car => ({
+    type: 'scattermapbox', lat: [car.lat], lon: [car.lon],
+    mode: 'markers',
+    marker: { size: 13, color: '#111111', opacity: 0.9 },
+    hoverinfo: 'skip', showlegend: false,
+  }));
+  const dotTraces = cars.map(car => {
+    const sched   = carSchedules[car.id];
+    const dotColor = urgencyColor(sched?.urgency);
+    const addrLine = sched?.address || car.address || `${car.lat.toFixed(4)}, ${car.lon.toFixed(4)}`;
+    return {
+      type: 'scattermapbox', lat: [car.lat], lon: [car.lon],
+      mode: 'markers',
+      marker: { size: 10, color: dotColor, opacity: 1.0 },
+      hoverinfo: 'text',
+      hovertext: `<b>${car.name}</b><br>${addrLine}`,
+      hoverlabel: { bgcolor: 'white', bordercolor: '#aaa', font: { color: 'black' } },
+      name: car.name,
+    };
+  });
+
+  const all = [...ringTraces, ...dotTraces];
+  const base = mapDiv.data.length;
+  Plotly.addTraces(mapDiv, all).then(() => {
+    _carTraceIdxs = all.map((_, i) => base + i);
+  }).catch(() => {});
+}
+
+// Reverse-geocode a coordinate to a short address string (Nominatim).
+async function reverseGeocode(lat, lon) {
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+    const d = await r.json();
+    if (!d.address) return null;
+    const a = d.address;
+    const num    = a.house_number || '';
+    const street = a.road || a.pedestrian || '';
+    const city   = a.city || a.town || a.village || '';
+    return [num, street].filter(Boolean).join(' ') + (city ? `, ${city}` : '');
+  } catch (_) { return null; }
+}
+
+// Add a temporary pin (same style as permanent cars) while naming a new car.
+function addTempPin(lat, lon) {
+  if (!mapDiv.data) return;
+  const base = mapDiv.data.length;
+  const traces = [
+    { type: 'scattermapbox', lat: [lat], lon: [lon], mode: 'markers',
+      marker: { size: 13, color: '#111111', opacity: 0.9 }, hoverinfo: 'skip', showlegend: false },
+    { type: 'scattermapbox', lat: [lat], lon: [lon], mode: 'markers',
+      marker: { size: 10, color: '#64748b', opacity: 1.0 }, hoverinfo: 'skip', showlegend: false },
+  ];
+  Plotly.addTraces(mapDiv, traces).then(() => {
+    _tempPinIdxs = [base, base + 1];
+  }).catch(() => {});
+}
+
+function removeTempPin() {
+  if (!_tempPinIdxs.length) return;
+  try { Plotly.deleteTraces(mapDiv, [..._tempPinIdxs].sort((a,b) => b-a)); } catch (_) {}
+  _tempPinIdxs = [];
+}
+
+// ── Plotly event listeners (re-attached after every newPlot) ─────────────────
+function handlePlotlyClick(data) {
+  if (!data.points || !data.points.length) return;
+  const pt = data.points[0];
+  if (pt.lat === undefined || pt.lon === undefined) return;
+  // Identify which saved car was clicked by proximity (~200 m threshold)
+  const T = 0.002;
+  const clicked = cars.find(c => Math.abs(c.lat - pt.lat) < T && Math.abs(c.lon - pt.lon) < T);
+  if (clicked) showCarPopup(clicked);
+}
+
+function attachPlotlyListeners() {
+  try { mapDiv.removeAllListeners('plotly_click'); } catch (_) {}
+  mapDiv.on('plotly_click', handlePlotlyClick);
+}
+
+// ── Cities / regions ──────────────────────────────────────────────────────────
+async function loadCities() {
+  try {
+    const res = await fetch('/cities');
+    if (!res.ok) return;
+    const data = await res.json();
+    regions = {};
+    regionSelect.innerHTML = '';
+    for (const [key, val] of Object.entries(data.regions)) {
+      regions[key] = { name: val.name, center: val.center };
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = val.name;
+      regionSelect.appendChild(opt);
+    }
+  } catch (_) {}
+}
+
+regionSelect.addEventListener('change', () => {
+  const rk = regionSelect.value;
+  // Find first car whose nearest region matches, or fall back to region center
+  const carInRegion = cars.find(c => {
+    let best = null, bd = Infinity;
+    for (const [k, r] of Object.entries(regions)) {
+      const d = (r.center.lat - c.lat) ** 2 + (r.center.lon - c.lon) ** 2;
+      if (d < bd) { bd = d; best = k; }
+    }
+    return best === rk;
+  });
+  if (carInRegion) {
+    activeCarId = carInRegion.id;
+    updateCarSelect();
+    checkCarWithRender(carInRegion);
+  } else {
+    const c = regions[rk]?.center;
+    if (c) loadAreaMap(c.lat, c.lon);
+  }
+});
+
+// ── Nearest region ────────────────────────────────────────────────────────────
+function setNearestRegion(lat, lon) {
+  let best = null, bestDist = Infinity;
+  for (const [key, r] of Object.entries(regions)) {
+    const d = (r.center.lat - lat) ** 2 + (r.center.lon - lon) ** 2;
+    if (d < bestDist) { bestDist = d; best = key; }
+  }
+  if (best && regionSelect.value !== best) regionSelect.value = best;
+}
+
+// ── Cars ──────────────────────────────────────────────────────────────────────
+async function loadPrefs() {
+  if (!session) return;
+  try {
+    const res = await apiFetch('/prefs');
+    if (res.ok) {
+      const prefs = await res.json();
+      cars = prefs.cars || [];
+    }
+  } catch (_) {}
+  updateCarSelect();
+}
+
+async function savePrefs() {
+  if (!session) return;
+  try {
+    await apiFetch('/prefs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cars }),
+    });
+  } catch (_) {}
+}
+
+function updateCarSelect() {
+  const prev = carSelect.value;
+  carSelect.innerHTML = '';
+  for (const car of cars) {
+    const opt = document.createElement('option');
+    opt.value = car.id;
+    opt.textContent = car.name;
+    carSelect.appendChild(opt);
+  }
+  const addOpt = document.createElement('option');
+  addOpt.value = '__add__';
+  addOpt.textContent = '＋ Add car…';
+  carSelect.appendChild(addOpt);
+  carSelect.value = activeCarId || (prev !== '__add__' ? prev : '') || (cars[0]?.id ?? '');
+}
+
+carSelect.addEventListener('change', () => {
+  const val = carSelect.value;
+  if (val === '__add__') {
+    carSelect.value = activeCarId || cars[0]?.id || '';
+    startPlacing(); // drag-map to select location
+    return;
+  }
+  activeCarId = val || null;
+  if (activeCarId) {
+    const car = cars.find(c => c.id === activeCarId);
+    if (car) {
+      setNearestRegion(car.lat, car.lon);
+      checkCarWithRender(car);
+    }
+  }
+});
+
+// IP-based approximate location — no permission prompt, works server-side too.
+async function getIPLocation() {
+  try {
+    const r = await fetch('https://ipapi.co/json/');
+    const d = await r.json();
+    if (d.latitude && d.longitude) return { lat: d.latitude, lon: d.longitude };
+  } catch (_) {}
+  return null;
+}
+
+// Load street-zone map for any lat/lon (no car required).
+async function loadAreaMap(lat, lon, zoom = 11) {
+  try {
+    const res = await apiFetch('/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat, lon, region: regionSelect.value || undefined }),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.figure?.layout?.mapbox) data.figure.layout.mapbox.zoom = zoom;
+    renderMap(data.figure);
+    setLocationKnown('ip');
+    setStatus('idle', 'Add a car to check street sweeping.');
+  } catch (_) {}
+}
+
+// GPS — only used for car location updates (not for initial load)
+function getGPS(onSuccess, onError) {
+  if (!navigator.geolocation) { onError?.('Geolocation not supported.'); return; }
+  navigator.geolocation.getCurrentPosition(
+    pos => onSuccess(pos.coords.latitude, pos.coords.longitude),
+    err => onError?.(err.message),
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+// ── Per-car schedule checks ───────────────────────────────────────────────────
+// Fetch /check for a car, render the street zone map, cache result.
+async function checkCarWithRender(car) {
+  setStatus('idle', 'Checking…');
+  try {
+    const res = await apiFetch('/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat: car.lat, lon: car.lon, region: regionSelect.value || undefined }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      setStatus('idle', `Error: ${err.detail}`);
+      return;
+    }
+    const data = await res.json();
+    carSchedules[car.id] = data;
+    renderMap(data.figure);
+    if (!_locationKnown) setLocationKnown('ip'); // map is loaded; keep existing GPS state if set
+    updateStatusFromSchedules();
+  } catch (e) { setStatus('idle', `Network error: ${e.message}`); }
+}
+
+// Fetch /check for a car silently (no map re-render), update status + markers.
+async function checkCarSilently(car) {
+  try {
+    const res = await apiFetch('/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat: car.lat, lon: car.lon, region: regionSelect.value || undefined }),
+    });
+    if (!res.ok) return;
+    carSchedules[car.id] = await res.json();
+    updateStatusFromSchedules();
+    overlayCarMarkers();
+  } catch (_) {}
+}
+
+function updateStatusFromSchedules() {
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  let worst = 'safe';
+  for (const s of Object.values(carSchedules)) {
+    if (s.urgency === 'today') { worst = 'today'; break; }
+    if (s.urgency === 'tomorrow') worst = 'tomorrow';
+  }
+  const prefix = `${today} · `;
+  if      (worst === 'today')    setStatus('today',    `${prefix}🚨 Sweeping TODAY — move your car!`);
+  else if (worst === 'tomorrow') setStatus('tomorrow', `${prefix}⚠️ Sweeping TOMORROW.`);
+  else                           setStatus('safe',     `${prefix}✅ No sweeping today or tomorrow.`);
+}
+
+// ── Car placement (drag-map + "Place here") ───────────────────────────────────
+function startPlacing(editCarId = null) {
+  placingCar    = true;
+  placingEditId = editCarId;
+  placeBanner.classList.add('active');
+  crosshair.classList.add('visible');
+}
+
+function stopPlacing() {
+  placingCar    = false;
+  placingEditId = null;
+  placeBanner.classList.remove('active');
+  crosshair.classList.remove('visible');
+  carSelect.value = activeCarId || '';
+}
+
+btnPlaceHere.addEventListener('click', async () => {
+  const mbMap = getMapboxMap();
+  if (!mbMap) return;
+  const center = mbMap.getCenter();
+  pendingLat = center.lat;
+  pendingLon = center.lng;
+
+  if (placingEditId) {
+    // Editing an existing car — update coords + re-geocode address
+    const car = cars.find(c => c.id === placingEditId);
+    if (car) {
+      car.lat = pendingLat; car.lon = pendingLon;
+      car.address = await reverseGeocode(pendingLat, pendingLon);
+      await savePrefs();
+    }
+    stopPlacing();
+    overlayCarMarkers();
+    pendingLat = pendingLon = null;
+  } else {
+    // Adding a new car — pin at crosshair, name panel next to it
+    stopPlacing();
+    addTempPin(pendingLat, pendingLon);
+    const sc = latLonToScreen(pendingLat, pendingLon);
+    const rect = mapDiv.getBoundingClientRect();
+    showNamePanel(
+      sc ? sc.x : rect.left + rect.width  / 2,
+      sc ? sc.y : rect.top  + rect.height / 2
+    );
+  }
+});
+
+btnCancelPlace.addEventListener('click', stopPlacing);
+
+// ── Context menu ──────────────────────────────────────────────────────────────
+function showCtxMenu(x, y) {
+  _ctxScreenX = x; _ctxScreenY = y;
+  const mw = 170, mh = 44;
+  ctxMenu.style.left = Math.min(x, window.innerWidth  - mw) + 'px';
+  ctxMenu.style.top  = Math.min(y, window.innerHeight - mh) + 'px';
+  ctxMenu.style.display = 'block';
+}
+
+function hideCtxMenu() { ctxMenu.style.display = 'none'; }
+
+ctxAddCar.addEventListener('click', () => {
+  hideCtxMenu();
+  addTempPin(pendingLat, pendingLon);
+  showNamePanel(_ctxScreenX, _ctxScreenY);
+});
+
+// ── Inline name panel (no overlay) ───────────────────────────────────────────
+function showNamePanel(screenX, screenY) {
+  namePanelInput.value = defaultCarName();
+  const pw = 165, ph = 70;
+  namePanel.style.left = Math.min(screenX + 10, window.innerWidth  - pw - 8) + 'px';
+  namePanel.style.top  = Math.min(screenY + 10, window.innerHeight - ph - 8) + 'px';
+  namePanel.style.display = 'block';
+  setTimeout(() => { namePanelInput.focus(); namePanelInput.select(); }, 30);
+}
+
+function hideNamePanel() {
+  namePanel.style.display = 'none';
+  removeTempPin();
+  pendingLat = pendingLon = null;
+}
+
+btnNpCancel.addEventListener('click', hideNamePanel);
+btnNpSave.addEventListener('click', savePendingCar);
+namePanelInput.addEventListener('keydown', e => { if (e.key === 'Enter') savePendingCar(); });
+
+async function savePendingCar() {
+  if (pendingLat === null) return;
+  const name = namePanelInput.value.trim() || 'My car';
+  const id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36);
+  const address = await reverseGeocode(pendingLat, pendingLon);
+  cars.push({ id, name, lat: pendingLat, lon: pendingLon, address });
+  removeTempPin();
+  namePanel.style.display = 'none';
+  await savePrefs();
+  activeCarId = id;
+  updateCarSelect();
+  setNearestRegion(pendingLat, pendingLon);
+  overlayCarMarkers();
+  checkCarSilently(cars[cars.length - 1]); // schedule for the new car
+  pendingLat = pendingLon = null;
+}
+
+// ── Car popup ─────────────────────────────────────────────────────────────────
+function formatScheduleHTML(sched) {
+  if (!sched) return '';
+  const fmt = entries => {
+    const valid = entries.filter(e => e && e.length >= 2);
+    if (!valid.length) return 'No sweeping';
+    const seen = new Set();
+    return valid.filter(e => { const k = e[1]+(e[2]||''); return seen.has(k) ? false : seen.add(k); })
+                .map(e => e[2] ? `${e[1]} — ${e[2]}` : e[1]).join(', ');
+  };
+  const even = fmt(sched.schedule_even || []);
+  const odd  = fmt(sched.schedule_odd  || []);
+  const side = sched.car_side || 'even';
+  if (even === odd) return `<div class="sched-row hl">Street: ${even}</div>`;
+  return `<div class="sched-row${side==='even'?' hl':''}">Even: ${even}</div>` +
+         `<div class="sched-row${side==='odd' ?' hl':''}">Odd: ${odd}</div>`;
+}
+
+function showCarPopup(car) {
+  popupCarId = car ? car.id : null;
+  popupCarName.textContent = car ? car.name : '';
+  popupNameInput.style.display = 'none';
+  popupAddrWrap.style.display  = 'none';
+  popupAddrInput.value = '';
+  popupNameInput.value = car ? car.name : '';
+  document.getElementById('popup-schedule').innerHTML = car ? formatScheduleHTML(carSchedules[car.id]) : '';
+  carPopup.classList.add('visible');
+}
+
+function hideCarPopup() {
+  carPopup.classList.remove('visible');
+  popupNameInput.style.display = 'none';
+  popupAddrWrap.style.display  = 'none';
+  popupAddrInput.value = '';
+  popupCarId = null;
+}
+
+btnPopupClose.addEventListener('click', hideCarPopup);
+
+btnPopupRename.addEventListener('click', () => {
+  const showing = popupNameInput.style.display !== 'none';
+  popupNameInput.style.display = showing ? 'none' : 'block';
+  if (!showing) { popupNameInput.focus(); popupNameInput.select(); }
+});
+
+popupNameInput.addEventListener('keydown', async e => {
+  if (e.key === 'Enter') await commitRename();
+  if (e.key === 'Escape') popupNameInput.style.display = 'none';
+});
+
+async function commitRename() {
+  const car = cars.find(c => c.id === popupCarId);
+  if (!car || !popupNameInput.value.trim()) return;
+  car.name = popupNameInput.value.trim();
+  popupCarName.textContent = car.name;
+  popupNameInput.style.display = 'none';
+  updateCarSelect();
+  await savePrefs();
+}
+
+btnPopupGps.addEventListener('click', () => {
+  btnPopupGps.disabled = true;
+  btnPopupGps.innerHTML = '<span class="spinner"></span>Locating…';
+  getGPS(async (lat, lon) => {
+    const car = cars.find(c => c.id === popupCarId);
+    if (car) {
+      car.lat = lat; car.lon = lon;
+      car.address = await reverseGeocode(lat, lon);
+      await savePrefs();
+    }
+    btnPopupGps.disabled = false;
+    btnPopupGps.textContent = '📍 Update to GPS';
+    hideCarPopup();
+    if (car) { setNearestRegion(lat, lon); await checkCarWithRender(car); }
+  }, msg => {
+    btnPopupGps.disabled = false;
+    btnPopupGps.textContent = '📍 Update to GPS';
+    alert(`GPS error: ${msg}`);
+  });
+});
+
+btnPopupManual.addEventListener('click', () => {
+  const id = popupCarId;
+  hideCarPopup();
+  startPlacing(id); // drag-to-place in edit mode
+});
+
+btnPopupAddr.addEventListener('click', () => {
+  const showing = popupAddrWrap.style.display !== 'none';
+  popupAddrWrap.style.display = showing ? 'none' : 'flex';
+  if (!showing) popupAddrInput.focus();
+});
+
+async function geocodeAndUpdate() {
+  const query = popupAddrInput.value.trim();
+  if (!query) return;
+  btnPopupAddrGo.disabled = true;
+  btnPopupAddrGo.textContent = '…';
+  try {
+    const res  = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    if (!data.length) { alert('Address not found.'); return; }
+    const lat = parseFloat(data[0].lat), lon = parseFloat(data[0].lon);
+    const car = cars.find(c => c.id === popupCarId);
+    if (car) { car.lat = lat; car.lon = lon; car.address = query; await savePrefs(); setNearestRegion(lat, lon); }
+    hideCarPopup();
+    overlayCarMarkers();
+  } catch (_) {
+    alert('Geocoding failed — check your connection.');
+  }
+  btnPopupAddrGo.disabled = false;
+  btnPopupAddrGo.textContent = '→';
+}
+btnPopupAddrGo.addEventListener('click', geocodeAndUpdate);
+popupAddrInput.addEventListener('keydown', e => { if (e.key === 'Enter') geocodeAndUpdate(); });
+
+btnPopupRemove.addEventListener('click', async () => {
+  const removedId = popupCarId;
+  delete carSchedules[removedId];
+  cars = cars.filter(c => c.id !== removedId);
+  if (activeCarId === removedId) activeCarId = cars[0]?.id ?? null;
+  hideCarPopup();
+  updateCarSelect();
+  await savePrefs();
+  overlayCarMarkers();
+  if (cars.length > 0 && activeCarId) {
+    updateStatusFromSchedules();
+  } else {
+    setStatus('idle', 'Add a car to check street sweeping.');
+  }
+});
+
+// ── API fetch ─────────────────────────────────────────────────────────────────
+function apiFetch(path, opts = {}) {
+  const token = session?.access_token;
+  return fetch(path, {
+    ...opts,
+    headers: { ...(opts.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
+}
+
+document.getElementById('btn-locate').addEventListener('click', () => {
+  const btn = document.getElementById('btn-locate');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner" style="border-top-color:#2563eb;border-color:rgba(0,0,0,.15)"></span>';
+  getGPS(async (lat, lon) => {
+    btn.disabled = false; btn.textContent = '📍';
+    setLocationKnown('gps');
+    setNearestRegion(lat, lon);
+    if (cars.length > 0) {
+      try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat, lon }, 'mapbox.zoom': 16 }); } catch (_) {}
+    } else {
+      await loadAreaMap(lat, lon, 16);
+    }
+  }, msg => { btn.disabled = false; btn.textContent = '📍'; alert(`GPS: ${msg}`); });
+});
+
+function setStatus(cls, text) { statusText.className = cls; statusText.textContent = text; }
+
+// ── Service Worker ────────────────────────────────────────────────────────────
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+</script>
+</body>
+</html>

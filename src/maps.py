@@ -238,13 +238,8 @@ def _build_info_panel(myCar, schedule_even, schedule_odd):
 # Main plotting function
 # ---------------------------------------------------------------------------
 
-def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None):
-    """
-    Render an interactive Plotly map showing:
-      • All Oakland street-sweeping segments (colour-coded by schedule urgency)
-      • The car's current position as an emoji marker
-      • A summary panel with address and both-side sweeping schedules
-    """
+def _build_map_figure(myCar, myCity, schedule_even=None, schedule_odd=None, message=None):
+    """Build and return the Plotly Figure (does not display it)."""
     schedule_even = schedule_even or []
     schedule_odd  = schedule_odd  or []
 
@@ -451,59 +446,11 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
             name=label,
         ))
 
-    # --- Car position marker (dark outline ring + coloured inner dot) ---
-    # Scattermapbox markers don't support marker.line, so we use two traces:
-    # a larger dark ring underneath for contrast, and the coloured dot on top.
-    addr      = _car_address(myCar)
-    car_hover = f"<b>{CAR_NAME}</b><br>{addr}"
-
-    fig.add_trace(go.Scattermapbox(
-        lat=[myCar.lat], lon=[myCar.lon],
-        mode="markers",
-        marker=dict(size=28, color="#111111", opacity=0.85),
-        hoverinfo="skip",
-        showlegend=False,
-    ))
-
-    fig.add_trace(go.Scattermapbox(
-        lat=[myCar.lat], lon=[myCar.lon],
-        mode="markers",
-        marker=dict(size=20, color=car_color, opacity=1.0),
-        hoverinfo="text", hovertext=car_hover,
-        hoverlabel=_URGENCY_HOVER[car_color],
-        name=CAR_NAME,
-    ))
-
-    # --- Info annotation (bottom-left overlay) ---
-    panel_html = _build_info_panel(myCar, schedule_even, schedule_odd)
-
-    # --- Inset overview map (lower-right): car position only ---
-    fig.add_trace(go.Scattermapbox(
-        lat=[myCar.lat], lon=[myCar.lon],
-        mode="markers",
-        marker=dict(size=10, color=car_color),
-        hoverinfo="skip",
-        subplot="mapbox2",
-        showlegend=False,
-    ))
-
-    # Inset sits at lower-right; main map explicitly owns the full canvas so it
-    # doesn't split the figure with the second mapbox subplot.
-    INSET_X0, INSET_X1 = 0.79, 1.0
-    INSET_Y0, INSET_Y1 = 0.0,  0.24
-
     fig.update_layout(
         mapbox=dict(
             style="open-street-map",
             center=dict(lat=myCar.lat, lon=myCar.lon),
             zoom=15,
-            domain=dict(x=[0.0, 1.0], y=[0.0, 1.0]),
-        ),
-        mapbox2=dict(
-            style="open-street-map",
-            center=dict(lat=myCar.lat, lon=myCar.lon),
-            zoom=11,
-            domain=dict(x=[INSET_X0, INSET_X1], y=[INSET_Y0, INSET_Y1]),
         ),
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
         legend=dict(
@@ -511,35 +458,19 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None)
             bgcolor="rgba(255,255,255,0.88)",
             bordercolor="#aaa", borderwidth=1,
         ),
-        shapes=[dict(
-            type="rect", xref="paper", yref="paper",
-            x0=INSET_X0, y0=INSET_Y0, x1=INSET_X1, y1=INSET_Y1,
-            line=dict(color="#888", width=1),
-            fillcolor="rgba(0,0,0,0)", layer="above",
-        )],
-        annotations=[
-            dict(
-                text=panel_html,
-                align="left", showarrow=False,
-                xref="paper", yref="paper",
-                x=0.01, y=0.01,
-                bgcolor=_URGENCY_PANEL[car_color]["bgcolor"],
-                bordercolor=_URGENCY_PANEL[car_color]["bordercolor"],
-                borderwidth=1,
-                font=dict(size=13),
-            ),
-            dict(
-                text="Overview",
-                showarrow=False,
-                xref="paper", yref="paper",
-                x=(INSET_X0 + INSET_X1) / 2,
-                y=INSET_Y1 - 0.005,
-                yanchor="top",
-                font=dict(size=10, color="#555"),
-                bgcolor="rgba(255,255,255,0.70)",
-            ),
-        ],
     )
 
+    return fig
+
+
+def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None):
+    """Render the map and open it in a browser tab."""
+    fig = _build_map_figure(myCar, myCity, schedule_even, schedule_odd, message)
     fig.show(config=dict(scrollZoom=True, displayModeBar=True, displaylogo=False))
+
+
+def plot_map_dict(myCar, myCity, schedule_even=None, schedule_odd=None, message=None) -> dict:
+    """Return the Plotly figure as a JSON-serialisable dict (for API responses)."""
+    fig = _build_map_figure(myCar, myCity, schedule_even, schedule_odd, message)
+    return fig.to_dict()
 
