@@ -28,6 +28,9 @@ import io
 import os
 import zipfile
 
+# Repo root — used to resolve data file paths regardless of working directory.
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 import geopandas
 import numpy as np
 import requests
@@ -42,7 +45,7 @@ from cities import CITIES
 def load_city_data(city_key: str, *, force_refresh: bool = False) -> geopandas.GeoDataFrame:
     """Return a normalised GeoDataFrame for the given city key."""
     city = CITIES[city_key]
-    local_path = city["local_path"]
+    local_path = os.path.join(_ROOT, city["local_path"])
 
     if force_refresh and os.path.exists(local_path):
         os.remove(local_path)
@@ -63,11 +66,14 @@ def load_city_data(city_key: str, *, force_refresh: bool = False) -> geopandas.G
 
     gdf = geopandas.read_file(local_path)
 
-    # Optional geographic clip (e.g. Edgewater neighbourhood only)
+    # Optional geographic clip (e.g. Edgewater neighbourhood only).
+    # Reproject to EPSG:4326 for the intersection test (bbox is always in degrees)
+    # but keep the original CRS for the returned GDF so callers can reproject as needed.
     if "bbox" in city:
         lat_min, lon_min, lat_max, lon_max = city["bbox"]
         clip = _shapely_box(lon_min, lat_min, lon_max, lat_max)
-        gdf = gdf[gdf.geometry.intersects(clip)].copy()
+        gdf_4326 = gdf.to_crs("EPSG:4326") if (gdf.crs and not gdf.crs.equals("EPSG:4326")) else gdf
+        gdf = gdf[gdf_4326.geometry.intersects(clip)].copy()
 
     return _normalise(gdf, city["schema"])
 

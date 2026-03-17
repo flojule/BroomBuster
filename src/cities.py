@@ -106,6 +106,7 @@ REGIONS = {
         "center": {"lat": 37.820, "lon": -122.295},
         "manual_default": {"lat": 37.821326, "lon": -122.280705},
         "overview_zoom": 9,
+        "tz": "America/Los_Angeles",
     },
     "chicago": {
         "name": "Chicago",
@@ -113,5 +114,6 @@ REGIONS = {
         "center": {"lat": 41.9100, "lon": -87.6700},
         "manual_default": {"lat": 41.996593, "lon": -87.665282},
         "overview_zoom": 10,
+        "tz": "America/Chicago",
     },
 }

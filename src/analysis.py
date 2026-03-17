@@ -22,6 +22,38 @@ def _norm_name(name: str) -> str:
     return _STREET_SUFFIXES.sub("", name).strip().upper()
 
 
+# Matches time ranges like "8AM–10AM", "7:30AM-9AM", "8AM to 10AM"
+_TIME_RANGE_RE = re.compile(
+    r'(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*(?:[-\u2013\u2014]|to)\s*'
+    r'(\d{1,2})(?::(\d{2}))?\s*(AM|PM)',
+    re.IGNORECASE,
+)
+
+
+def _parse_time_range(time_str: str):
+    """Parse '8AM–10AM', '7:30AM-9AM', '8AM to 10AM' → (start, end) datetime.time or (None, None)."""
+    if not isinstance(time_str, str) or not time_str.strip():
+        return None, None
+    m = _TIME_RANGE_RE.search(time_str)
+    if not m:
+        return None, None
+    h1, m1, ap1, h2, m2, ap2 = m.groups()
+
+    def _t(h, mn, ap):
+        h, mn = int(h), int(mn or 0)
+        ap = ap.upper()
+        if ap == 'PM' and h != 12:
+            h += 12
+        elif ap == 'AM' and h == 12:
+            h = 0
+        return datetime.time(h, mn)
+
+    try:
+        return _t(h1, m1, ap1), _t(h2, m2, ap2)
+    except Exception:
+        return None, None
+
+
 # Map sweeping letter codes to weekday integers
 weekday_map = {
     'M': 0, 'T': 1, 'W': 2, 'TH': 3, 'F': 4, 'S': 5, 'SU': 6
@@ -88,27 +120,59 @@ def check_street_sweeping(myCar, myCity):
     name_idx = _get_name_index(myCity)
 
     if myStreetName and myStreets and myStreetName == myStreets[0]:
+        car_x, car_y = _CRS_TRANSFORMER.transform(myCar.lon, myCar.lat)
+        car_pt = Point(car_x, car_y)
+        ranged_match        = False
+        nearest_no_range    = None
+        nearest_no_range_d  = float('inf')
+
         for i in name_idx.get(_norm_name(myStreetName), []):
             street_section = myCity.loc[i]
-            # If the segment belongs to a different city than the car, skip it
-            # unless we have address ranges to confirm a match.
             seg_city = street_section.get("_city")
+            # Skip segments from a different city when city is known
+            if car_city and seg_city and seg_city != car_city:
+                continue
+
             l_f = _safe_int(street_section.get("L_F_ADD"))
             l_t = _safe_int(street_section.get("L_T_ADD"))
             r_f = _safe_int(street_section.get("R_F_ADD"))
             r_t = _safe_int(street_section.get("R_T_ADD"))
+
             if l_f is not None and l_t is not None and r_f is not None and r_t is not None:
+                # Address ranges present — match only if car's number is in range
                 if myNumber and (l_f <= myNumber <= l_t or r_f <= myNumber <= r_t):
                     _collect(street_section)
+                    ranged_match = True
             else:
-                # No address ranges — only use if city matches (or unknown)
-                if car_city is None or seg_city is None or seg_city == car_city:
-                    _collect(street_section)
+                # No address ranges — track the nearest segment only
+                geom = street_section.geometry
+                if geom is not None and not geom.is_empty:
+                    d = car_pt.distance(geom)
+                    if d < nearest_no_range_d:
+                        nearest_no_range_d = d
+                        nearest_no_range   = street_section
+
+        # If no range-based match was found, use the geometrically nearest segment
+        if not ranged_match and nearest_no_range is not None:
+            _collect(nearest_no_range)
 
     elif myStreetName and myStreets and len(myStreets) > 1 and myStreetName == myStreets[1]:
+        # Corner case: car is on myStreets[0] but geocoder returned myStreets[1].
+        # Use the nearest segment on the actual street (no house number available).
         myActualStreet = myStreets[0]
+        car_x, car_y = _CRS_TRANSFORMER.transform(myCar.lon, myCar.lat)
+        car_pt = Point(car_x, car_y)
+        nearest_row, nearest_dist = None, float('inf')
         for i in name_idx.get(_norm_name(myActualStreet), []):
-            _collect(myCity.loc[i])
+            row  = myCity.loc[i]
+            geom = row.geometry
+            if geom is not None and not geom.is_empty:
+                d = car_pt.distance(geom)
+                if d < nearest_dist:
+                    nearest_dist = d
+                    nearest_row  = row
+        if nearest_row is not None:
+            _collect(nearest_row)
 
     # Zone/polygon fallback — for area-based datasets like Chicago ward sections.
     # If no schedule was found above, test whether the car sits inside a zone polygon.
@@ -145,15 +209,42 @@ def check_street_sweeping(myCar, myCity):
 
     return schedule, schedule_even, schedule_odd, message
 
-def check_day_street_sweeping(schedule):
-    myDay = datetime.date.today()
+def check_day_street_sweeping(schedule, local_now=None):
+    myDay      = local_now.date() if local_now else datetime.date.today()
     myTomorrow = myDay + datetime.timedelta(days=1)
     schedule_ymd: set = set()
+    date_times: dict  = {}  # date → [time_str, ...]
 
     for day in schedule:
-        schedule_ymd.update(parse_sweeping_code(day[0]))
+        if not day:
+            continue
+        code     = day[0]
+        time_str = day[2] if len(day) >= 3 else ""
+        try:
+            dates = parse_sweeping_code(code)
+            for d in dates:
+                schedule_ymd.add(d)
+                if time_str:
+                    date_times.setdefault(d, []).append(time_str)
+        except Exception:
+            pass
 
-    if myDay in schedule_ymd:
+    def _day_active(d):
+        """True if sweeping is scheduled on d and has not yet ended."""
+        if d not in schedule_ymd:
+            return False
+        if local_now is None:
+            return True
+        times = date_times.get(d, [])
+        if not times:
+            return True  # no time info — assume still active
+        for ts in times:
+            _, end_t = _parse_time_range(ts)
+            if end_t is None or local_now.time() <= end_t:
+                return True  # at least one window still open
+        return False  # all windows have closed
+
+    if _day_active(myDay):
         return "today"
     elif myTomorrow in schedule_ymd:
         return "tomorrow"

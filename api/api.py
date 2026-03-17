@@ -2,7 +2,9 @@ import os
 import sys
 import threading
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import geopandas
 import pandas as pd
@@ -47,6 +49,7 @@ if _SUPABASE_URL and _SUPABASE_SERVICE_KEY:
 _city_gdfs: dict = {}       # city_key → GeoDataFrame (EPSG:4326)
 _city_gdfs_3857: dict = {}  # city_key → GeoDataFrame (EPSG:3857)
 _city_events: dict = {}     # city_key → threading.Event (set when done)
+_region_combined: dict = {} # region_key → (frozenset(loaded_keys), gdf_4326, gdf_3857)
 
 
 def _load_city_bg(city_key: str) -> None:
@@ -111,7 +114,8 @@ def _get_region_gdfs(lat: float, lon: float, region_key: str):
     """
     Wait for the priority city (the one whose bbox contains lat/lon) to load,
     then return combined GDFs from all cities that are already in cache.
-    Non-priority cities are included if already loaded; never waited for.
+    The combined GDF is cached until the set of loaded cities changes, so the
+    analysis.py name-index cache (keyed by id(gdf)) is reused across requests.
     """
     ordered = _priority_cities(lat, lon, region_key)
 
@@ -123,22 +127,21 @@ def _get_region_gdfs(lat: float, lon: float, region_key: str):
         if ck in _city_gdfs:
             break  # have data for the user's city; good enough to proceed
 
-    # Assemble from whatever is cached (priority city guaranteed above).
-    gdfs_4326, gdfs_3857 = [], []
-    for ck in REGIONS[region_key]["cities"]:
-        if ck in _city_gdfs:
-            gdfs_4326.append(_city_gdfs[ck])
-            gdfs_3857.append(_city_gdfs_3857[ck])
-
-    if not gdfs_4326:
+    loaded = frozenset(ck for ck in REGIONS[region_key]["cities"] if ck in _city_gdfs)
+    if not loaded:
         return None, None
 
-    c4 = geopandas.GeoDataFrame(
-        pd.concat(gdfs_4326, ignore_index=True), crs="EPSG:4326"
-    )
-    c3 = geopandas.GeoDataFrame(
-        pd.concat(gdfs_3857, ignore_index=True), crs="EPSG:3857"
-    )
+    # Return cached combined GDF if the set of loaded cities hasn't changed.
+    cached = _region_combined.get(region_key)
+    if cached and cached[0] == loaded:
+        return cached[1], cached[2]
+
+    gdfs_4326 = [_city_gdfs[ck] for ck in REGIONS[region_key]["cities"] if ck in _city_gdfs]
+    gdfs_3857 = [_city_gdfs_3857[ck] for ck in REGIONS[region_key]["cities"] if ck in _city_gdfs]
+
+    c4 = geopandas.GeoDataFrame(pd.concat(gdfs_4326, ignore_index=True), crs="EPSG:4326")
+    c3 = geopandas.GeoDataFrame(pd.concat(gdfs_3857, ignore_index=True), crs="EPSG:3857")
+    _region_combined[region_key] = (loaded, c4, c3)
     return c4, c3
 
 
@@ -204,7 +207,8 @@ class CheckRequest(BaseModel):
 
 @app.post("/check")
 def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
-    region = req.region if req.region in REGIONS else _auto_region(req.lat, req.lon)
+    region    = req.region if req.region in REGIONS else _auto_region(req.lat, req.lon)
+    local_now = datetime.now(ZoneInfo(REGIONS[region].get("tz", "UTC")))
 
     myCity_4326, myCity_3857 = _get_region_gdfs(req.lat, req.lon, region)
     if myCity_4326 is None:
@@ -220,7 +224,7 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
     schedule, schedule_even, schedule_odd, message = analysis.check_street_sweeping(
         myCar, myCity_3857
     )
-    urgency = analysis.check_day_street_sweeping(schedule)
+    urgency = analysis.check_day_street_sweeping(schedule, local_now=local_now)
 
     number = getattr(myCar, "street_number", None)
     car_side = "even" if (number and number % 2 == 0) else "odd"
@@ -234,6 +238,7 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
         schedule_even=schedule_even,
         schedule_odd=schedule_odd,
         message=message,
+        local_now=local_now,
     )
 
     return {

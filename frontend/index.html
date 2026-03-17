@@ -24,19 +24,38 @@
     html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
 
     /* ── Auth ── */
-    #auth-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100dvh; padding: 24px; }
-    #auth-screen h1 { font-size: 2rem; font-weight: 700; margin-bottom: 6px; }
-    #auth-screen p.tagline { color: var(--muted); margin-bottom: 32px; text-align: center; }
-    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 28px; width: 100%; max-width: 380px; box-shadow: 0 4px 20px rgba(0,0,0,.06); }
-    .card h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 20px; }
-    label { display: block; font-size: .85rem; font-weight: 500; color: var(--muted); margin-bottom: 4px; margin-top: 14px; }
-    input[type=email], input[type=password] { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; outline: none; transition: border-color .15s; }
-    input:focus { border-color: var(--blue); }
-    button { display: block; width: 100%; padding: 12px; margin-top: 20px; background: var(--blue); color: #fff; border: none; border-radius: 10px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: opacity .15s; }
+    #auth-screen {
+      position: relative; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; min-height: 100dvh; padding: 24px;
+      background: url('/grim_sweeper_rect.png') center center / cover no-repeat #0f172a;
+    }
+    #auth-screen::before {
+      content: ''; position: absolute; inset: 0; background: rgba(0,0,0,0.52); pointer-events: none; z-index: 0;
+    }
+    #auth-screen > * { position: relative; z-index: 1; }
+    #auth-screen h1 { font-size: 1.8rem; font-weight: 800; margin-bottom: 4px; color: #f1f5f9; letter-spacing: -.02em; }
+    #auth-screen p.tagline { color: #94a3b8; margin-bottom: 24px; text-align: center; font-size: .9rem; }
+    .card {
+      background: rgba(10,16,30,0.82); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 16px; padding: 24px; width: 100%; max-width: 320px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.45);
+    }
+    .card h2 { font-size: 1rem; font-weight: 600; margin-bottom: 16px; color: #e2e8f0; }
+    label { display: block; font-size: .82rem; font-weight: 500; color: #64748b; margin-bottom: 4px; margin-top: 12px; }
+    input[type=email], input[type=password] {
+      width: 100%; padding: 9px 11px;
+      background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13);
+      border-radius: 8px; font-size: .95rem; outline: none; color: #f1f5f9;
+      transition: border-color .15s;
+    }
+    input::placeholder { color: #475569; }
+    input:focus { border-color: #059669; }
+    button { display: block; width: 100%; padding: 10px; margin-top: 16px; background: var(--blue); color: #fff; border: none; border-radius: 10px; font-size: .95rem; font-weight: 600; cursor: pointer; transition: opacity .15s; }
     button:disabled { opacity: .5; cursor: default; }
     button:not(:disabled):hover { opacity: .9; }
-    .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); margin-top: 10px; font-weight: 500; }
-    #auth-error { color: var(--red); font-size: .85rem; margin-top: 10px; min-height: 18px; }
+    #btn-login { background: #059669; }
+    .btn-ghost { background: transparent; color: #64748b; border: 1px solid rgba(255,255,255,0.13); margin-top: 8px; font-weight: 500; }
+    #auth-error { color: #f87171; font-size: .82rem; margin-top: 8px; min-height: 16px; }
 
     /* ── App ── */
     #app-screen { display: none; flex-direction: column; height: 100dvh; }
@@ -49,8 +68,16 @@
       overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch;
     }
     .app-title { font-size: .88rem; font-weight: 700; flex-shrink: 0; }
-    .tb-sep { color: var(--border); flex-shrink: 0; }
-    .tb-select { font-size: .78rem; border: 1px solid var(--border); border-radius: 6px; padding: 3px 5px; background: var(--bg); color: var(--text); outline: none; flex-shrink: 0; }
+    /* Vertical separator line between topbar groups */
+    .tb-sep { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; align-self: center; margin: 0 3px; }
+    /* Unified height for all topbar interactive controls.
+       display/width override the global button { block; 100% } rule. */
+    .tb-select, .tb-btn {
+      display: inline-flex; align-items: center; width: auto;
+      height: 26px; box-sizing: border-box; padding: 0 8px; margin: 0;
+      font-size: .78rem; font-weight: 600; border-radius: 6px; flex-shrink: 0;
+    }
+    .tb-select { border: 1px solid var(--border); background: var(--bg); color: var(--text); outline: none; }
     #region-select { max-width: 90px; }
     #car-select    { max-width: 120px; }
     #status-text   { flex: 1; font-size: .78rem; font-weight: 600; text-align: center; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; min-width: 60px; }
@@ -58,17 +85,17 @@
     #status-text.tomorrow { color: #c2410c; }
     #status-text.safe     { color: #1d4ed8; }
     #status-text.idle     { color: var(--muted); }
-    .tb-btn { width: auto; padding: 4px 9px; margin: 0; font-size: .75rem; font-weight: 600; border-radius: 6px; flex-shrink: 0; }
     #btn-logout  { background: transparent; color: var(--muted); border: 1px solid var(--border); font-weight: 500; }
     #btn-locate        { background: var(--card); color: var(--muted); border: 1px solid var(--border); }
     #btn-locate.ip     { background: #eef1f7; color: #94a3b8; border-color: #d1d9ea; }
     #btn-locate.gps    { background: var(--blue); color: #fff; border-color: var(--blue); }
+    #locate-info { font-size: .72rem; color: var(--muted); flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
 
     /* ── Map container ── */
     #map-container { flex: 1; min-height: 0; position: relative; }
     #map { width: 100%; height: 100%; }
 
-    /* ── Place banner (floating pill, drag-map mode) ── */
+    /* ── Place banner (tap-to-place mode) ── */
     #place-banner {
       position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
       z-index: 20; display: none; align-items: center; gap: 8px;
@@ -79,12 +106,6 @@
       white-space: nowrap; pointer-events: auto;
     }
     #place-banner.active { display: flex; }
-    #btn-place-here {
-      width: auto; margin: 0; padding: 4px 12px;
-      background: #fff; color: var(--blue);
-      border: none; border-radius: 12px;
-      font-size: .78rem; font-weight: 700;
-    }
     #btn-cancel-place {
       width: auto; margin: 0; padding: 3px 10px;
       background: rgba(255,255,255,.2); color: #fff;
@@ -92,87 +113,118 @@
       font-size: .75rem; font-weight: 500;
     }
 
-    /* ── Crosshair overlay (shown during drag-to-place) ── */
-    #crosshair {
-      position: absolute; top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      pointer-events: none; display: none; z-index: 15;
-      font-size: 40px; line-height: 1; color: var(--blue);
-      text-shadow: 0 0 6px #fff, 0 0 3px #fff;
-    }
-    #crosshair.visible { display: block; }
-
     /* ── Context menu (right-click) ── */
     #ctx-menu {
       position: fixed; z-index: 200; display: none;
       background: var(--card); border: 1px solid var(--border);
-      border-radius: 7px; box-shadow: 0 3px 10px rgba(0,0,0,.13);
-      overflow: hidden; min-width: 120px;
+      border-radius: 10px; box-shadow: 0 4px 14px rgba(0,0,0,.14);
+      overflow: hidden; min-width: 140px;
     }
-    .ctx-item { padding: 6px 12px; cursor: pointer; font-size: .88rem; }
+    .ctx-item { padding: 7px 14px; cursor: pointer; font-size: .85rem; }
     .ctx-item:hover { background: var(--bg); }
 
-    /* ── Car info popup (click on car marker) ── */
-    #car-popup {
+    /* ── Cars panel (persistent top-right info card) ── */
+    #cars-panel {
       position: absolute; top: 10px; right: 10px; z-index: 20;
-      display: none; flex-direction: column; gap: 8px;
+      display: flex; flex-direction: column; gap: 8px;
+      max-height: calc(100% - 20px); overflow-y: auto;
+      pointer-events: auto;
+    }
+    .cars-legend {
       background: var(--card); border: 1px solid var(--border);
-      border-radius: 12px; padding: 12px 14px;
-      box-shadow: 0 4px 16px rgba(0,0,0,.15); min-width: 180px;
+      border-radius: 8px; padding: 6px 10px; overflow: hidden;
+      font-size: .7rem; display: flex; gap: 8px; flex-wrap: wrap;
+      box-shadow: 0 2px 6px rgba(0,0,0,.08);
+      user-select: none;
     }
-    #car-popup.visible { display: flex; }
-    .popup-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-    .popup-name-wrap { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: .88rem; }
-    #btn-popup-rename {
-      width: auto; margin: 0; padding: 2px 6px;
-      background: transparent; color: var(--muted); border: none;
-      font-size: .75rem; border-radius: 4px;
+    .cars-legend span { white-space: nowrap; font-weight: 500; }
+    .car-entry {
+      background: var(--urg-bg, var(--card)); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 12px; overflow: hidden;
+      box-shadow: 0 2px 10px rgba(0,0,0,.10);
+      width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 5px;
+      cursor: pointer; transition: border .12s, background .12s;
     }
-    #btn-popup-close {
-      width: auto; margin: 0; padding: 2px 6px;
-      background: transparent; color: var(--muted); border: none; font-size: .9rem;
+    .car-entry.selected {
+      border: 2px solid var(--car-color);
+      padding: 9px 11px; /* compensate for extra border px */
     }
-    #popup-name-input {
-      width: 100%; padding: 6px 8px; border: 1px solid var(--blue);
-      border-radius: 6px; font-size: .88rem; outline: none; display: none;
+    .ce-header { display: flex; align-items: center; gap: 6px; }
+    .ce-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--car-color, #3b82f6); flex-shrink: 0;
     }
-    .popup-actions { display: flex; flex-direction: column; gap: 5px; }
-    .popup-actions button {
-      width: 100%; margin: 0; padding: 6px 10px; font-size: .78rem; font-weight: 500;
-      border-radius: 8px; text-align: left;
+    .ce-name {
+      flex: 1; font-weight: 600; font-size: .84rem; outline: none;
+      cursor: default; border-bottom: 1px solid transparent; min-width: 0;
+      user-select: none;
     }
-    #btn-popup-gps    { background: var(--blue); color: #fff; border: none; }
-    #btn-popup-manual { background: transparent; color: var(--text); border: 1px solid var(--border); }
-    #btn-popup-addr   { background: transparent; color: var(--text); border: 1px solid var(--border); }
-    #btn-popup-remove { background: transparent; color: #b91c1c; border: 1px solid #fca5a5; }
-    #popup-addr-wrap { display: flex; gap: 5px; margin-top: 2px; }
-    #popup-addr-input {
-      flex: 1; padding: 6px 8px; border: 1px solid var(--border);
-      border-radius: 6px; font-size: .82rem; outline: none;
+    .ce-name[contenteditable="true"] { cursor: text; border-bottom-color: var(--blue); user-select: text; }
+    .ce-remove {
+      width: auto; margin: 0; padding: 1px 5px; flex-shrink: 0;
+      background: transparent; border: none; color: var(--muted);
+      font-size: .8rem; cursor: pointer; opacity: .55; line-height: 1;
     }
-    #popup-addr-input:focus { border-color: var(--blue); }
-    #btn-popup-addr-go {
-      width: auto; margin: 0; padding: 5px 10px; background: var(--blue);
-      color: #fff; border: none; border-radius: 6px; font-size: .82rem;
+    .ce-remove:hover { opacity: 1; color: var(--red); }
+    .ce-addr {
+      font-size: .75rem; color: var(--muted); outline: none;
+      cursor: default; border-bottom: 1px solid transparent; min-height: 1em;
+      user-select: none;
     }
-    /* ── Schedule info inside popup ── */
-    #popup-schedule { font-size: .78rem; color: var(--text); line-height: 1.5; margin-bottom: 4px; }
-    #popup-schedule:empty { display: none; }
-    .sched-row { padding: 1px 0; }
-    .sched-row.hl { font-weight: 700; color: #b91c1c; }
+    .ce-addr[contenteditable="true"] { cursor: text; color: var(--text); border-bottom-color: var(--blue); user-select: text; }
+    .ce-addr:empty::before { content: 'double-click to set address'; opacity: .45; font-size: .7rem; }
+    .ce-sched { font-size: .73rem; line-height: 1.45; }
+    .ce-sched-urgency { font-weight: 600; }
+    .ce-sched-header  { font-size: .68rem; font-weight: 600; color: var(--muted); margin-top: 4px; white-space: nowrap; }
+    .ce-sched-item    { font-size: .73rem; color: var(--muted); padding-left: 4px; line-height: 1.4; }
+    .ce-actions { display: flex; gap: 5px; margin-top: 3px; }
+    .ce-btn {
+      flex: 1; width: auto; margin: 0; padding: 4px 6px;
+      font-size: .71rem; font-weight: 500; border-radius: 6px; white-space: nowrap;
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text); cursor: pointer; text-align: center;
+    }
+    .ce-btn:hover { background: var(--bg); }
 
-    /* ── Inline name panel (no overlay shading) ── */
+    /* ── GPS pin popup (add car here) ── */
+    #gps-pin-popup {
+      position: absolute; z-index: 30; display: none;
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 5px 8px; box-shadow: 0 2px 10px rgba(0,0,0,.14);
+      transform: translate(-50%, calc(-100% - 24px));
+      white-space: nowrap; overflow: hidden;
+    }
+    #btn-gps-add { width: auto; margin: 0; padding: 4px 10px; font-size: .76rem; font-weight: 600; border-radius: 6px; }
+
+    /* ── Inline name panel — single line ── */
     #name-panel {
       position: fixed; z-index: 150; display: none;
       background: var(--card); border: 1px solid var(--border);
-      border-radius: 10px; padding: 8px 10px; width: 155px;
+      border-radius: 10px; padding: 7px 9px; overflow: hidden;
       box-shadow: 0 3px 14px rgba(0,0,0,.16);
     }
-    #name-panel-input { width: 100%; padding: 5px 7px; border: 1px solid var(--border); border-radius: 6px; font-size: .85rem; outline: none; }
+    .np-row { display: flex; gap: 6px; align-items: center; }
+    #name-panel-input { flex: 1; padding: 5px 7px; border: 1px solid var(--border); border-radius: 6px; font-size: .85rem; outline: none; min-width: 110px; background: var(--bg); color: var(--text); }
     #name-panel-input:focus { border-color: var(--blue); }
-    .np-btns { display: flex; gap: 5px; margin-top: 6px; }
-    .np-btns button { flex: 1; margin: 0; padding: 5px; font-size: .78rem; border-radius: 6px; }
-    #btn-np-cancel { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    #btn-np-save { margin: 0; padding: 5px 10px; width: auto; border-radius: 6px; font-size: .82rem; }
+
+    /* ── Custom hover tooltip ── */
+    #custom-hover {
+      position: fixed; z-index: 90; display: none; pointer-events: none;
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 7px 10px; max-width: 240px; line-height: 1.45;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: .76rem; color: var(--text);
+      box-shadow: 0 3px 10px rgba(0,0,0,.12);
+    }
+
+    /* ── Hide Mapbox/Plotly attribution controls (lower-right) ── */
+    .mapboxgl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-left { display: none !important; }
+    .js-plotly-plot .plotly a.modebar-btn { display: none !important; }
+    /* Hide Plotly's native hover label/arrow. pointer-events:none lets Mapbox GL
+       canvas receive mousemove/click directly, which is how scattermapbox fires
+       plotly_hover and plotly_click. Car selection is guarded by _plotlyClickHandled. */
+    .hoverlayer { opacity: 0 !important; pointer-events: none !important; }
 
     /* ── Spinner ── */
     .spinner { width: 11px; height: 11px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; vertical-align: middle; margin-right: 3px; }
@@ -201,24 +253,28 @@
 <div id="app-screen">
   <div id="topbar">
     <span class="app-title">🧹 BroomBuster</span>
-    <span class="tb-sep">|</span>
+    <span class="tb-sep"></span>
     <select id="region-select" class="tb-select"></select>
     <select id="car-select" class="tb-select"></select>
-    <span class="tb-sep">|</span>
     <span id="status-text" class="idle">—</span>
+    <span id="locate-info"></span>
     <button id="btn-locate" class="tb-btn" title="Use GPS location">📍</button>
+    <span class="tb-sep"></span>
+    <select id="sel-map-style" class="tb-select">
+      <option value="open-street-map">🗺 OSM</option>
+      <option value="carto-positron" selected>☀️ Light</option>
+      <option value="carto-darkmatter">🌙 Dark</option>
+      <option value="stamen-toner">⬛ Toner</option>
+    </select>
+    <span class="tb-sep"></span>
     <button id="btn-logout" class="tb-btn">Sign out</button>
   </div>
   <div id="map-container">
     <div id="map"></div>
 
-    <!-- Crosshair target (center of map during drag-to-place) -->
-    <div id="crosshair">＋</div>
-
-    <!-- Floating pill shown during car placement -->
+    <!-- Floating pill shown during tap-to-place mode -->
     <div id="place-banner">
-      Move map to your car →
-      <button id="btn-place-here">Place here</button>
+      📍 Tap the map to place your car
       <button id="btn-cancel-place">Cancel</button>
     </div>
 
@@ -227,39 +283,32 @@
       <div class="ctx-item" id="ctx-add-car">+ Add car here</div>
     </div>
 
-    <!-- Car info popup (shown when clicking car marker) -->
-    <div id="car-popup">
-      <div class="popup-header">
-        <div class="popup-name-wrap">
-          <span id="popup-car-name"></span>
-          <button id="btn-popup-rename" title="Edit name">✏️</button>
-        </div>
-        <button id="btn-popup-close">✕</button>
+    <!-- Persistent cars info panel (top-right) -->
+    <div id="cars-panel">
+      <div id="map-legend" class="cars-legend">
+        <span style="color:#ef4444">■ Today</span>
+        <span style="color:#f97316">■ Tomorrow</span>
+        <span style="color:#2563eb">■ Clear</span>
       </div>
-      <input type="text" id="popup-name-input" placeholder="Car name" maxlength="32">
-      <div id="popup-schedule"></div>
-      <div class="popup-actions">
-        <button id="btn-popup-gps">📍 Update to GPS</button>
-        <button id="btn-popup-manual">🗺 Update manually</button>
-        <button id="btn-popup-addr">📬 Enter address</button>
-        <button id="btn-popup-remove">🗑 Remove car</button>
-      </div>
-      <div id="popup-addr-wrap" style="display:none">
-        <input type="text" id="popup-addr-input" placeholder="123 Main St, Oakland CA">
-        <button id="btn-popup-addr-go">→</button>
-      </div>
+    </div>
+
+    <!-- GPS "you are here" pin popup -->
+    <div id="gps-pin-popup">
+      <button id="btn-gps-add">📍 Add car here</button>
     </div>
   </div>
 </div>
 
 <!-- ══════════════════ INLINE NAME PANEL ══════════════════ -->
 <div id="name-panel">
-  <input type="text" id="name-panel-input" placeholder="Name…" maxlength="32">
-  <div class="np-btns">
-    <button id="btn-np-cancel">Cancel</button>
+  <div class="np-row">
+    <input type="text" id="name-panel-input" placeholder="Car name…" maxlength="32">
     <button id="btn-np-save">Save</button>
   </div>
 </div>
+
+<!-- ══════════════════ CUSTOM HOVER ══════════════════ -->
+<div id="custom-hover"></div>
 
 <script>
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -267,6 +316,71 @@ const SUPABASE_URL  = window.SUPABASE_URL  || 'https://bebepoowtumqmzwlydeu.supa
 const SUPABASE_ANON = window.SUPABASE_ANON || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJlYmVwb293dHVtcW16d2x5ZGV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MDg2ODEsImV4cCI6MjA4OTE4NDY4MX0.BHZ2EiFN1-GiM7QEsxnqMB8oVI1Jzl1LH3D-y230nk4';
 
 const DEFAULT_CENTER = { lat: 37.820, lon: -122.295, zoom: 11 };
+const CAR_COLORS = ['#3b82f6','#10b981','#a855f7','#06b6d4','#ec4899','#84cc16','#6366f1','#22d3ee'];
+function carColor(idx) { return CAR_COLORS[idx % CAR_COLORS.length]; }
+
+// ── Car selection helpers ──────────────────────────────────────────────────────
+function clearCarSelection() {
+  _selectedCarId = null;
+  unhighlightCarOnMap();
+  for (const e of carsPanel.querySelectorAll('.car-entry')) e.classList.remove('selected');
+}
+
+function isCarInView(car) {
+  try { return getMapboxMap()?.getBounds()?.contains([car.lon, car.lat]) ?? false; }
+  catch (_) { return false; }
+}
+
+function setSelectedCar(carId) {
+  _selectedCarId = carId;
+  for (const e of carsPanel.querySelectorAll('.car-entry')) {
+    e.classList.toggle('selected', e.dataset.id === carId);
+  }
+  const car = cars.find(c => c.id === carId);
+  if (car && !isCarInView(car)) {
+    try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat: car.lat, lon: car.lon }, 'mapbox.zoom': 16 }); } catch (_) {}
+  }
+  highlightCarOnMap();
+}
+
+// Highlight selected car ring with a larger marker (one-shot, no RAF loop).
+function highlightCarOnMap() {
+  if (!_selectedCarId || !_baseFigure) return;
+  const carIdx = cars.findIndex(c => c.id === _selectedCarId);
+  if (carIdx === -1) return;
+  try { Plotly.restyle(mapDiv, { 'marker.size': [22] }, [_baseFigure.data.length + carIdx]); } catch (_) {}
+}
+
+function unhighlightCarOnMap() {
+  if (!_baseFigure || !cars.length) return;
+  const n = _baseFigure.data.length;
+  try { Plotly.restyle(mapDiv, { 'marker.size': 14 }, cars.map((_, i) => n + i)); } catch (_) {}
+}
+
+function updateGpsPinPopup() {
+  const popup = document.getElementById('gps-pin-popup');
+  if (!_gpsLocPin) { popup.style.display = 'none'; return; }
+  const mbMap = getMapboxMap();
+  if (!mbMap) { popup.style.display = 'none'; return; }
+  const px = mbMap.project([_gpsLocPin.lon, _gpsLocPin.lat]);
+  popup.style.left = Math.round(px.x) + 'px';
+  popup.style.top  = Math.round(px.y) + 'px';
+  popup.style.display = 'block';
+}
+
+document.getElementById('btn-gps-add').addEventListener('click', () => {
+  if (!_gpsLocPin) return;
+  pendingLat = _gpsLocPin.lat; pendingLon = _gpsLocPin.lon;
+  // Drop a temp pin at GPS loc and open the name panel near the popup
+  addTempPin(pendingLat, pendingLon);
+  const popup = document.getElementById('gps-pin-popup');
+  const rect  = popup.getBoundingClientRect();
+  showNamePanel(rect.left + rect.width / 2, rect.top);
+});
+
+function getMapboxStyle() {
+  return document.getElementById('sel-map-style')?.value || 'carto-positron';
+}
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
@@ -279,12 +393,19 @@ let regions        = {};
 let placingCar     = false;
 let placingEditId  = null;
 let pendingLat     = null, pendingLon = null;
-let popupCarId     = null;
-let carSchedules   = {};    // carId → /check response (urgency, schedule_even, schedule_odd, address, car_side)
-let _carTraceIdxs  = [];
-let _tempPinIdxs   = [];
+let carSchedules   = {};    // carId → /check response
+let _baseFigure    = null;  // last /check figure; used for react updates
+let _tempPin       = null;  // {lat,lon} while naming a new car
 let _ctxScreenX    = 0, _ctxScreenY = 0;
+let _mbPlaceHandler = null;
 let _locationKnown = false;
+let _selectedCarId = null;
+let _locSource = null, _locLat = null, _locLon = null, _locRegion = null, _locCity = null;
+let _mbBgClickHandler = null;
+let _mbMoveStartHandler = null, _mbMoveEndHandler = null, _mbMoveHandler = null;
+let _gpsLocPin = null;  // temporary "you are here" pin from locate button
+let _gpsLocPinTimer = null;
+let _plotlyClickHandled = false;  // guards against mbMap bg-click clearing a just-set selection
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
 const authScreen     = document.getElementById('auth-screen');
@@ -301,26 +422,12 @@ const carSelect      = document.getElementById('car-select');
 const statusText     = document.getElementById('status-text');
 const mapDiv         = document.getElementById('map');
 const placeBanner    = document.getElementById('place-banner');
-const crosshair      = document.getElementById('crosshair');
-const btnPlaceHere   = document.getElementById('btn-place-here');
 const btnCancelPlace = document.getElementById('btn-cancel-place');
 const ctxMenu        = document.getElementById('ctx-menu');
 const ctxAddCar      = document.getElementById('ctx-add-car');
-const carPopup       = document.getElementById('car-popup');
-const popupCarName   = document.getElementById('popup-car-name');
-const popupNameInput = document.getElementById('popup-name-input');
-const btnPopupRename = document.getElementById('btn-popup-rename');
-const btnPopupClose  = document.getElementById('btn-popup-close');
-const btnPopupGps    = document.getElementById('btn-popup-gps');
-const btnPopupManual = document.getElementById('btn-popup-manual');
-const btnPopupAddr   = document.getElementById('btn-popup-addr');
-const btnPopupRemove = document.getElementById('btn-popup-remove');
-const popupAddrWrap  = document.getElementById('popup-addr-wrap');
-const popupAddrInput = document.getElementById('popup-addr-input');
-const btnPopupAddrGo = document.getElementById('btn-popup-addr-go');
+const carsPanel      = document.getElementById('cars-panel');
 const namePanel      = document.getElementById('name-panel');
 const namePanelInput = document.getElementById('name-panel-input');
-const btnNpCancel    = document.getElementById('btn-np-cancel');
 const btnNpSave      = document.getElementById('btn-np-save');
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -345,24 +452,24 @@ async function initApp() {
   appScreen.style.display  = 'flex';
   updateCarSelect();
   renderDefaultMap();
-  await loadCities();
-  await loadPrefs();   // populates cars[]
+  // Load cities, prefs, and IP location all in parallel for faster startup.
+  const [,,ipLoc] = await Promise.all([loadCities(), loadPrefs(), getIPLocation()]);
   if (cars.length > 0) {
     activeCarId = cars[0].id;
     updateCarSelect();
     setNearestRegion(cars[0].lat, cars[0].lon);
+    // Re-center immediately, then load zone overlays in the background.
+    try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat: cars[0].lat, lon: cars[0].lon }, 'mapbox.zoom': 16 }); } catch(_) {}
     await checkCarWithRender(cars[0]);
     for (const car of cars.slice(1)) checkCarSilently(car);
-  } else {
-    // No saved cars — try IP geolocation to load the right area
+  } else if (ipLoc) {
+    setNearestRegion(ipLoc.lat, ipLoc.lon);
+    setLocationKnown('ip', null, null, ipLoc.city);
+    try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat: ipLoc.lat, lon: ipLoc.lon }, 'mapbox.zoom': 13 }); } catch(_) {}
     setStatus('idle', 'Loading map…');
-    const loc = await getIPLocation();
-    if (loc) {
-      setNearestRegion(loc.lat, loc.lon);
-      await loadAreaMap(loc.lat, loc.lon, 13); // IP = neighbourhood zoom
-    } else {
-      setStatus('idle', 'Select a region or add a car to load the map.');
-    }
+    loadAreaMap(ipLoc.lat, ipLoc.lon, 13); // async — overlays load in background
+  } else {
+    setStatus('idle', 'Select a region or add a car to load the map.');
   }
 }
 
@@ -419,11 +526,39 @@ function latLonToScreen(lat, lon) {
   return { x: rect.left + px.x, y: rect.top + px.y };
 }
 
+function nearestRegionNameByCoords(lat, lon) {
+  let best = null, bestDist = Infinity;
+  for (const [, r] of Object.entries(regions)) {
+    const d = (r.center.lat - lat) ** 2 + (r.center.lon - lon) ** 2;
+    if (d < bestDist) { bestDist = d; best = r.name; }
+  }
+  return best || '';
+}
+
 // source: 'gps' | 'ip' | false
-function setLocationKnown(source) {
+function setLocationKnown(source, lat = null, lon = null, city = null) {
   _locationKnown = !!source;
+  _locSource = source || null;
+  _locLat = lat; _locLon = lon;
+  _locCity = city || null;
   btnLocate.classList.remove('ip', 'gps');
   if (source) btnLocate.classList.add(source);
+  updateLocateInfo();
+}
+
+function updateLocateInfo() {
+  const el = document.getElementById('locate-info');
+  if (!_locSource) { el.textContent = ''; return; }
+  if (_locSource === 'ip') {
+    el.textContent = _locCity ? `IP: ${_locCity}` : 'IP';
+  } else {
+    const coords = (_locLat !== null && _locLon !== null)
+      ? `${_locLat.toFixed(4)}, ${_locLon.toFixed(4)}` : '';
+    const area = _locCity || nearestRegionNameByCoords(_locLat, _locLon);
+    el.textContent = coords
+      ? `GPS: ${coords}${area ? ' · ' + area : ''}`
+      : `GPS${area ? ': ' + area : ''}`;
+  }
 }
 
 function screenToLatLon(clientX, clientY) {
@@ -446,12 +581,19 @@ mapDiv.addEventListener('contextmenu', e => {
 
 document.addEventListener('click', e => {
   if (!e.target.closest('#ctx-menu')) hideCtxMenu();
+  // Close name panel when clicking outside it (but not from the elements that open it)
+  if (namePanel.style.display !== 'none'
+      && !e.target.closest('#name-panel')
+      && !e.target.closest('#ctx-menu')
+      && !e.target.closest('#gps-pin-popup')) {
+    hideNamePanel();
+  }
 });
 
 // ── Default map ───────────────────────────────────────────────────────────────
 function renderDefaultMap() {
   Plotly.newPlot(mapDiv, [], {
-    mapbox: { style: 'open-street-map', center: { lat: DEFAULT_CENTER.lat, lon: DEFAULT_CENTER.lon }, zoom: DEFAULT_CENTER.zoom },
+    mapbox: { style: getMapboxStyle(), center: { lat: DEFAULT_CENTER.lat, lon: DEFAULT_CENTER.lon }, zoom: DEFAULT_CENTER.zoom },
     margin: { r: 0, t: 0, l: 0, b: 0 },
   }, { scrollZoom: true, displayModeBar: false, responsive: true }).then(attachPlotlyListeners);
 }
@@ -460,54 +602,86 @@ let _renderedRegion = null;
 
 function renderMap(figure) {
   if (!figure || !figure.data) return;
-  _carTraceIdxs = [];
+  _baseFigure = figure;
   const region = regionSelect.value;
-  // Use newPlot when switching regions (clears stale polygon fills, e.g. Chicago).
-  // Use react for same-region updates — preserves OSM tile cache → much faster.
-  const fn = (region !== _renderedRegion) ? Plotly.newPlot : Plotly.react;
+  // newPlot on region change (clears stale polygon fills); react otherwise (preserves tile cache).
+  const isNewRegion = region !== _renderedRegion;
+  const fn = isNewRegion ? Plotly.newPlot : Plotly.react;
   _renderedRegion = region;
-  fn(mapDiv, figure.data, figure.layout, {
+  // Preserve user-selected map style and current pan/zoom on same-region reload.
+  const backendMb = figure.layout?.mapbox || {};
+  const liveMb    = !isNewRegion ? getMapboxMap() : null;
+  const liveCenter = liveMb?.getCenter();
+  const center = liveCenter
+    ? { lat: liveCenter.lat, lon: liveCenter.lng }
+    : (backendMb.center || { lat: DEFAULT_CENTER.lat, lon: DEFAULT_CENTER.lon });
+  const zoom = liveMb ? liveMb.getZoom() : (backendMb.zoom ?? DEFAULT_CENTER.zoom);
+  const layout = {
+    ...(figure.layout || {}),
+    mapbox: { ...backendMb, style: getMapboxStyle(), center, zoom },
+    margin: { r: 0, t: 0, l: 0, b: 0 },
+  };
+  fn(mapDiv, [...figure.data, ...buildCarTraces()], layout, {
     scrollZoom: true, displayModeBar: false, responsive: true,
-  }).then(() => { attachPlotlyListeners(); overlayCarMarkers(); });
+  }).then(() => { attachPlotlyListeners(); highlightCarOnMap(); });
 }
 
-// Add/refresh car markers as Plotly traces on the existing map.
-// Two traces per car (outer dark ring + coloured inner dot) to match the backend style.
-function overlayCarMarkers() {
-  if (!mapDiv.data) return;
-  if (_carTraceIdxs.length) {
-    try { Plotly.deleteTraces(mapDiv, [..._carTraceIdxs].sort((a,b) => b-a)); } catch (_) {}
-    _carTraceIdxs = [];
-  }
-  if (!cars.length) return;
+// Abbreviate street address for compact display.
+function abbreviate(s) {
+  if (!s) return s;
+  return s
+    .replace(/\bAvenue\b/gi, 'Ave').replace(/\bBoulevard\b/gi, 'Blvd')
+    .replace(/\bStreet\b/gi, 'St').replace(/\bDrive\b/gi, 'Dr')
+    .replace(/\bCourt\b/gi, 'Ct').replace(/\bPlace\b/gi, 'Pl')
+    .replace(/\bLane\b/gi, 'Ln').replace(/\bRoad\b/gi, 'Rd')
+    .replace(/\bNorth\b/gi, 'N').replace(/\bSouth\b/gi, 'S')
+    .replace(/\bEast\b/gi, 'E').replace(/\bWest\b/gi, 'W');
+}
 
-  const urgencyColor = u => u === 'today' ? 'tomato' : u === 'tomorrow' ? 'orange' : 'cornflowerblue';
-  const ringTraces = cars.map(car => ({
-    type: 'scattermapbox', lat: [car.lat], lon: [car.lon],
-    mode: 'markers',
-    marker: { size: 13, color: '#111111', opacity: 0.9 },
-    hoverinfo: 'skip', showlegend: false,
+// Build car marker traces: rings[i] at index n+i, dots[i] at index n+cars.length+i.
+// (n = _baseFigure.data.length — the backend zone traces)
+function buildCarTraces() {
+  const rings = cars.map((car, i) => ({
+    type: 'scattermapbox', lat: [car.lat], lon: [car.lon], mode: 'markers',
+    marker: { size: 14, color: '#ffffff', opacity: 0.9 },
+    hoverinfo: 'none', showlegend: false,
   }));
-  const dotTraces = cars.map(car => {
-    const sched   = carSchedules[car.id];
-    const dotColor = urgencyColor(sched?.urgency);
-    const addrLine = sched?.address || car.address || `${car.lat.toFixed(4)}, ${car.lon.toFixed(4)}`;
+  const dots = cars.map((car, i) => {
+    const addr = abbreviate(carSchedules[car.id]?.address || car.address || `${car.lat.toFixed(4)}, ${car.lon.toFixed(4)}`);
     return {
-      type: 'scattermapbox', lat: [car.lat], lon: [car.lon],
-      mode: 'markers',
-      marker: { size: 10, color: dotColor, opacity: 1.0 },
-      hoverinfo: 'text',
-      hovertext: `<b>${car.name}</b><br>${addrLine}`,
-      hoverlabel: { bgcolor: 'white', bordercolor: '#aaa', font: { color: 'black' } },
-      name: car.name,
+      type: 'scattermapbox', lat: [car.lat], lon: [car.lon], mode: 'markers',
+      marker: { size: 10, color: carColor(i), opacity: 1.0 },
+      hoverinfo: 'none', showlegend: false,
     };
   });
+  const pinTraces = _tempPin ? [
+    { type: 'scattermapbox', lat: [_tempPin.lat], lon: [_tempPin.lon], mode: 'markers',
+      marker: { size: 13, color: '#111111', opacity: 0.9 }, hoverinfo: 'none', showlegend: false },
+    { type: 'scattermapbox', lat: [_tempPin.lat], lon: [_tempPin.lon], mode: 'markers',
+      marker: { size: 10, color: '#64748b', opacity: 1.0 }, hoverinfo: 'none', showlegend: false },
+  ] : [];
+  // "You are here" GPS locate pin — large translucent ring + solid blue dot
+  const gpsTraces = _gpsLocPin ? [
+    { type: 'scattermapbox', lat: [_gpsLocPin.lat], lon: [_gpsLocPin.lon], mode: 'markers',
+      marker: { size: 24, color: 'rgba(37,99,235,0.20)', opacity: 1.0 }, hoverinfo: 'none', showlegend: false },
+    { type: 'scattermapbox', lat: [_gpsLocPin.lat], lon: [_gpsLocPin.lon], mode: 'markers',
+      marker: { size: 11, color: '#2563eb', opacity: 1.0 }, hoverinfo: 'none', showlegend: false },
+  ] : [];
+  return [...rings, ...dots, ...pinTraces, ...gpsTraces];
+}
 
-  const all = [...ringTraces, ...dotTraces];
-  const base = mapDiv.data.length;
-  Plotly.addTraces(mapDiv, all).then(() => {
-    _carTraceIdxs = all.map((_, i) => base + i);
-  }).catch(() => {});
+// Re-render car markers + panel, preserving current pan/zoom.
+function overlayCarMarkers() {
+  if (!mapDiv.data) return;
+  const base = _baseFigure ? _baseFigure.data : [];
+  const layout = mapDiv.layout || (_baseFigure ? _baseFigure.layout : {
+    mapbox: { style: 'open-street-map', center: DEFAULT_CENTER, zoom: DEFAULT_CENTER.zoom },
+    margin: { r: 0, t: 0, l: 0, b: 0 },
+  });
+  Plotly.react(mapDiv, [...base, ...buildCarTraces()], layout, {
+    scrollZoom: true, displayModeBar: false, responsive: true,
+  }).then(() => { attachPlotlyListeners(); highlightCarOnMap(); });
+  renderCarsPanel();
 }
 
 // Reverse-geocode a coordinate to a short address string (Nominatim).
@@ -524,41 +698,74 @@ async function reverseGeocode(lat, lon) {
   } catch (_) { return null; }
 }
 
-// Add a temporary pin (same style as permanent cars) while naming a new car.
-function addTempPin(lat, lon) {
-  if (!mapDiv.data) return;
-  const base = mapDiv.data.length;
-  const traces = [
-    { type: 'scattermapbox', lat: [lat], lon: [lon], mode: 'markers',
-      marker: { size: 13, color: '#111111', opacity: 0.9 }, hoverinfo: 'skip', showlegend: false },
-    { type: 'scattermapbox', lat: [lat], lon: [lon], mode: 'markers',
-      marker: { size: 10, color: '#64748b', opacity: 1.0 }, hoverinfo: 'skip', showlegend: false },
-  ];
-  Plotly.addTraces(mapDiv, traces).then(() => {
-    _tempPinIdxs = [base, base + 1];
-  }).catch(() => {});
-}
-
-function removeTempPin() {
-  if (!_tempPinIdxs.length) return;
-  try { Plotly.deleteTraces(mapDiv, [..._tempPinIdxs].sort((a,b) => b-a)); } catch (_) {}
-  _tempPinIdxs = [];
-}
+function addTempPin(lat, lon) { _tempPin = { lat, lon }; overlayCarMarkers(); }
+function removeTempPin()      { _tempPin = null;         overlayCarMarkers(); }
 
 // ── Plotly event listeners (re-attached after every newPlot) ─────────────────
 function handlePlotlyClick(data) {
-  if (!data.points || !data.points.length) return;
-  const pt = data.points[0];
-  if (pt.lat === undefined || pt.lon === undefined) return;
-  // Identify which saved car was clicked by proximity (~200 m threshold)
-  const T = 0.002;
-  const clicked = cars.find(c => Math.abs(c.lat - pt.lat) < T && Math.abs(c.lon - pt.lon) < T);
-  if (clicked) showCarPopup(clicked);
+  if (placingCar) return;
+  _plotlyClickHandled = true;
+  setTimeout(() => { _plotlyClickHandled = false; }, 200);
+  if (!data.points || !data.points.length || !_baseFigure) { clearCarSelection(); return; }
+  const pt    = data.points[0];
+  const n     = _baseFigure.data.length;
+  const curve = pt.curveNumber;
+  // Car ring traces: [n .. n+cars.length-1], dots: [n+cars.length .. n+2*cars.length-1]
+  if (curve < n || curve >= n + 2 * cars.length) { clearCarSelection(); return; }
+  const carIdx = curve < n + cars.length ? curve - n : curve - n - cars.length;
+  const clicked = cars[carIdx];
+  if (!clicked) { clearCarSelection(); return; }
+  setSelectedCar(clicked.id);
+  const entry = carsPanel.querySelector(`.car-entry[data-id="${clicked.id}"]`);
+  if (entry) entry.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
+const customHoverEl = document.getElementById('custom-hover');
+
 function attachPlotlyListeners() {
-  try { mapDiv.removeAllListeners('plotly_click'); } catch (_) {}
+  try { mapDiv.removeAllListeners('plotly_click');
+        mapDiv.removeAllListeners('plotly_hover');
+        mapDiv.removeAllListeners('plotly_unhover'); } catch (_) {}
   mapDiv.on('plotly_click', handlePlotlyClick);
+  // Custom HTML hover (replaces Plotly's hidden hover layer)
+  mapDiv.on('plotly_hover', data => {
+    const pt = data.points?.[0];
+    const text = pt?.text;
+    if (!text) { customHoverEl.style.display = 'none'; return; }
+    // Mapbox GL events wrap the DOM event in .originalEvent
+    const ev = data.event?.originalEvent || data.event;
+    if (!ev?.clientX) { customHoverEl.style.display = 'none'; return; }
+    const x = Math.min(ev.clientX + 14, window.innerWidth  - 250);
+    const y = Math.max(ev.clientY - 10, 10);
+    customHoverEl.innerHTML = text;
+    customHoverEl.style.left = x + 'px';
+    customHoverEl.style.top  = y + 'px';
+    customHoverEl.style.display = 'block';
+  });
+  mapDiv.on('plotly_unhover', () => { customHoverEl.style.display = 'none'; });
+
+  const mbMap = getMapboxMap();
+  if (mbMap) {
+    // Background click → deselect car
+    if (_mbBgClickHandler) try { mbMap.off('click', _mbBgClickHandler); } catch (_) {}
+    _mbBgClickHandler = () => { if (!placingCar && !_plotlyClickHandled) clearCarSelection(); };
+    mbMap.on('click', _mbBgClickHandler);
+
+    // Hide hover tooltip while panning
+    if (_mbMoveStartHandler) try { mbMap.off('movestart', _mbMoveStartHandler); } catch (_) {}
+    _mbMoveStartHandler = () => { customHoverEl.style.display = 'none'; };
+    mbMap.on('movestart', _mbMoveStartHandler);
+
+    // Update GPS popup position while dragging
+    if (_mbMoveHandler) try { mbMap.off('move', _mbMoveHandler); } catch (_) {}
+    _mbMoveHandler = updateGpsPinPopup;
+    mbMap.on('move', _mbMoveHandler);
+
+    // Update GPS popup after move ends
+    if (_mbMoveEndHandler) try { mbMap.off('moveend', _mbMoveEndHandler); } catch (_) {}
+    _mbMoveEndHandler = () => { updateGpsPinPopup(); };
+    mbMap.on('moveend', _mbMoveEndHandler);
+  }
 }
 
 // ── Cities / regions ──────────────────────────────────────────────────────────
@@ -581,6 +788,12 @@ async function loadCities() {
 
 regionSelect.addEventListener('change', () => {
   const rk = regionSelect.value;
+  const rName = regions[rk]?.name || rk;
+  setStatus('idle', `Loading ${rName}…`);
+  // Immediately pan to region center while data loads
+  const rc = regions[rk]?.center;
+  if (rc) { try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat: rc.lat, lon: rc.lon }, 'mapbox.zoom': 11 }); } catch(_) {} }
+
   // Find first car whose nearest region matches, or fall back to region center
   const carInRegion = cars.find(c => {
     let best = null, bd = Infinity;
@@ -662,7 +875,17 @@ carSelect.addEventListener('change', () => {
     const car = cars.find(c => c.id === activeCarId);
     if (car) {
       setNearestRegion(car.lat, car.lon);
-      checkCarWithRender(car);
+      // Immediately re-center on the car (no network wait)
+      try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat: car.lat, lon: car.lon }, 'mapbox.zoom': 16 }); } catch(_) {}
+      if (carSchedules[car.id]?.figure) {
+        // Cache hit: render zone map instantly, refresh silently in background
+        renderMap(carSchedules[car.id].figure);
+        updateStatusFromSchedules();
+        renderCarsPanel();
+        checkCarSilently(car);
+      } else {
+        checkCarWithRender(car);
+      }
     }
   }
 });
@@ -672,7 +895,7 @@ async function getIPLocation() {
   try {
     const r = await fetch('https://ipapi.co/json/');
     const d = await r.json();
-    if (d.latitude && d.longitude) return { lat: d.latitude, lon: d.longitude };
+    if (d.latitude && d.longitude) return { lat: d.latitude, lon: d.longitude, city: d.city || '' };
   } catch (_) {}
   return null;
 }
@@ -689,7 +912,7 @@ async function loadAreaMap(lat, lon, zoom = 11) {
     const data = await res.json();
     if (data.figure?.layout?.mapbox) data.figure.layout.mapbox.zoom = zoom;
     renderMap(data.figure);
-    setLocationKnown('ip');
+    if (_locSource !== 'gps') setLocationKnown('ip');
     setStatus('idle', 'Add a car to check street sweeping.');
   } catch (_) {}
 }
@@ -708,12 +931,14 @@ function getGPS(onSuccess, onError) {
 // Fetch /check for a car, render the street zone map, cache result.
 async function checkCarWithRender(car) {
   setStatus('idle', 'Checking…');
+  const warmupTimer = setTimeout(() => setStatus('idle', '⏳ Server warming up, please wait…'), 5000);
   try {
     const res = await apiFetch('/check', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ lat: car.lat, lon: car.lon, region: regionSelect.value || undefined }),
     });
+    clearTimeout(warmupTimer);
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
       setStatus('idle', `Error: ${err.detail}`);
@@ -722,9 +947,10 @@ async function checkCarWithRender(car) {
     const data = await res.json();
     carSchedules[car.id] = data;
     renderMap(data.figure);
-    if (!_locationKnown) setLocationKnown('ip'); // map is loaded; keep existing GPS state if set
+    if (!_locationKnown) setLocationKnown('ip');
     updateStatusFromSchedules();
-  } catch (e) { setStatus('idle', `Network error: ${e.message}`); }
+    renderCarsPanel();
+  } catch (e) { clearTimeout(warmupTimer); setStatus('idle', `Network error: ${e.message}`); }
 }
 
 // Fetch /check for a car silently (no map re-render), update status + markers.
@@ -738,69 +964,80 @@ async function checkCarSilently(car) {
     if (!res.ok) return;
     carSchedules[car.id] = await res.json();
     updateStatusFromSchedules();
-    overlayCarMarkers();
+    overlayCarMarkers(); // also calls renderCarsPanel
   } catch (_) {}
 }
 
 function updateStatusFromSchedules() {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  let worst = 'safe';
-  for (const s of Object.values(carSchedules)) {
-    if (s.urgency === 'today') { worst = 'today'; break; }
-    if (s.urgency === 'tomorrow') worst = 'tomorrow';
+  let worst = 'safe', worstCar = null;
+  for (const [carId, s] of Object.entries(carSchedules)) {
+    if (s.urgency === 'today') { worst = 'today'; worstCar = cars.find(c => c.id === carId); break; }
+    if (s.urgency === 'tomorrow' && worst !== 'today') { worst = 'tomorrow'; worstCar = cars.find(c => c.id === carId); }
   }
-  const prefix = `${today} · `;
-  if      (worst === 'today')    setStatus('today',    `${prefix}🚨 Sweeping TODAY — move your car!`);
-  else if (worst === 'tomorrow') setStatus('tomorrow', `${prefix}⚠️ Sweeping TOMORROW.`);
-  else                           setStatus('safe',     `${prefix}✅ No sweeping today or tomorrow.`);
+  const dateSpan = `<span style="color:var(--muted);font-weight:400">${today}</span>&emsp;`;
+  const name = esc(worstCar ? worstCar.name : 'your car');
+  statusText.className = worst;
+  if      (worst === 'today')    statusText.innerHTML = `${dateSpan}🚨 Move ${name} today!`;
+  else if (worst === 'tomorrow') statusText.innerHTML = `${dateSpan}⚠️ Move ${name} tomorrow.`;
+  else                           statusText.innerHTML = `${dateSpan}✅ No sweeping today or tomorrow.`;
 }
 
-// ── Car placement (drag-map + "Place here") ───────────────────────────────────
+// ── Car placement (tap-to-place) ──────────────────────────────────────────────
 function startPlacing(editCarId = null) {
   placingCar    = true;
   placingEditId = editCarId;
   placeBanner.classList.add('active');
-  crosshair.classList.add('visible');
+
+  // Attach a one-shot click listener on the Mapbox map instance.
+  const mbMap = getMapboxMap();
+  if (mbMap) {
+    _mbPlaceHandler = (e) => commitPlacement(e.lngLat.lat, e.lngLat.lng);
+    mbMap.on('click', _mbPlaceHandler);
+  }
 }
 
 function stopPlacing() {
   placingCar    = false;
   placingEditId = null;
   placeBanner.classList.remove('active');
-  crosshair.classList.remove('visible');
   carSelect.value = activeCarId || '';
+
+  // Remove the mapbox click listener if still attached.
+  const mbMap = getMapboxMap();
+  if (mbMap && _mbPlaceHandler) {
+    mbMap.off('click', _mbPlaceHandler);
+    _mbPlaceHandler = null;
+  }
 }
 
-btnPlaceHere.addEventListener('click', async () => {
-  const mbMap = getMapboxMap();
-  if (!mbMap) return;
-  const center = mbMap.getCenter();
-  pendingLat = center.lat;
-  pendingLon = center.lng;
+// Called when the user taps a map location during placement mode.
+async function commitPlacement(lat, lon) {
+  const editId = placingEditId; // save before stopPlacing() clears it
+  stopPlacing();
 
-  if (placingEditId) {
-    // Editing an existing car — update coords + re-geocode address
-    const car = cars.find(c => c.id === placingEditId);
+  if (editId) {
+    // Updating an existing car's position.
+    const car = cars.find(c => c.id === editId);
     if (car) {
-      car.lat = pendingLat; car.lon = pendingLon;
-      car.address = await reverseGeocode(pendingLat, pendingLon);
+      car.lat = lat; car.lon = lon;
+      car.address = await reverseGeocode(lat, lon);
       await savePrefs();
+      overlayCarMarkers();
+      checkCarSilently(car); // refresh schedule for new location
     }
-    stopPlacing();
-    overlayCarMarkers();
-    pendingLat = pendingLon = null;
   } else {
-    // Adding a new car — pin at crosshair, name panel next to it
-    stopPlacing();
-    addTempPin(pendingLat, pendingLon);
-    const sc = latLonToScreen(pendingLat, pendingLon);
+    // Adding a new car — drop temp pin, show name panel next to it.
+    pendingLat = lat; pendingLon = lon;
+    addTempPin(lat, lon);
+    const sc   = latLonToScreen(lat, lon);
     const rect = mapDiv.getBoundingClientRect();
     showNamePanel(
       sc ? sc.x : rect.left + rect.width  / 2,
       sc ? sc.y : rect.top  + rect.height / 2
     );
   }
-});
+}
 
 btnCancelPlace.addEventListener('click', stopPlacing);
 
@@ -824,9 +1061,12 @@ ctxAddCar.addEventListener('click', () => {
 // ── Inline name panel (no overlay) ───────────────────────────────────────────
 function showNamePanel(screenX, screenY) {
   namePanelInput.value = defaultCarName();
-  const pw = 165, ph = 70;
-  namePanel.style.left = Math.min(screenX + 10, window.innerWidth  - pw - 8) + 'px';
-  namePanel.style.top  = Math.min(screenY + 10, window.innerHeight - ph - 8) + 'px';
+  const pw = 210, ph = 44;
+  // Center the panel horizontally on the trigger point, clamp to viewport
+  const left = Math.min(Math.max(screenX - pw / 2, 8), window.innerWidth  - pw - 8);
+  const top  = Math.min(screenY, window.innerHeight - ph - 8);
+  namePanel.style.left    = left + 'px';
+  namePanel.style.top     = top  + 'px';
   namePanel.style.display = 'block';
   setTimeout(() => { namePanelInput.focus(); namePanelInput.select(); }, 30);
 }
@@ -837,9 +1077,11 @@ function hideNamePanel() {
   pendingLat = pendingLon = null;
 }
 
-btnNpCancel.addEventListener('click', hideNamePanel);
 btnNpSave.addEventListener('click', savePendingCar);
-namePanelInput.addEventListener('keydown', e => { if (e.key === 'Enter') savePendingCar(); });
+namePanelInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter')  savePendingCar();
+  if (e.key === 'Escape') hideNamePanel();
+});
 
 async function savePendingCar() {
   if (pendingLat === null) return;
@@ -849,6 +1091,12 @@ async function savePendingCar() {
   cars.push({ id, name, lat: pendingLat, lon: pendingLon, address });
   removeTempPin();
   namePanel.style.display = 'none';
+  // Clear GPS locate pin after car is added at that location
+  if (_gpsLocPin) {
+    _gpsLocPin = null;
+    if (_gpsLocPinTimer) { clearTimeout(_gpsLocPinTimer); _gpsLocPinTimer = null; }
+    document.getElementById('gps-pin-popup').style.display = 'none';
+  }
   await savePrefs();
   activeCarId = id;
   updateCarSelect();
@@ -858,137 +1106,184 @@ async function savePendingCar() {
   pendingLat = pendingLon = null;
 }
 
-// ── Car popup ─────────────────────────────────────────────────────────────────
-function formatScheduleHTML(sched) {
-  if (!sched) return '';
-  const fmt = entries => {
-    const valid = entries.filter(e => e && e.length >= 2);
-    if (!valid.length) return 'No sweeping';
-    const seen = new Set();
-    return valid.filter(e => { const k = e[1]+(e[2]||''); return seen.has(k) ? false : seen.add(k); })
-                .map(e => e[2] ? `${e[1]} — ${e[2]}` : e[1]).join(', ');
-  };
-  const even = fmt(sched.schedule_even || []);
-  const odd  = fmt(sched.schedule_odd  || []);
-  const side = sched.car_side || 'even';
-  if (even === odd) return `<div class="sched-row hl">Street: ${even}</div>`;
-  return `<div class="sched-row${side==='even'?' hl':''}">Even: ${even}</div>` +
-         `<div class="sched-row${side==='odd' ?' hl':''}">Odd: ${odd}</div>`;
+// ── Cars panel ────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function showCarPopup(car) {
-  popupCarId = car ? car.id : null;
-  popupCarName.textContent = car ? car.name : '';
-  popupNameInput.style.display = 'none';
-  popupAddrWrap.style.display  = 'none';
-  popupAddrInput.value = '';
-  popupNameInput.value = car ? car.name : '';
-  document.getElementById('popup-schedule').innerHTML = car ? formatScheduleHTML(carSchedules[car.id]) : '';
-  carPopup.classList.add('visible');
+function normDesc(s) {
+  if (!s) return s;
+  return s.replace(/\s*\(every\)/gi, '').replace(/\s+/g, ' ').trim();
 }
 
-function hideCarPopup() {
-  carPopup.classList.remove('visible');
-  popupNameInput.style.display = 'none';
-  popupAddrWrap.style.display  = 'none';
-  popupAddrInput.value = '';
-  popupCarId = null;
-}
+function scheduleHTML(sched) {
+  if (!sched) return '<span style="color:var(--muted)">Loading…</span>';
+  const urgency  = sched.urgency || 'safe';
+  const urgColor = urgency === 'today'    ? '#ef4444'
+                 : urgency === 'tomorrow' ? '#f97316' : '#2563eb';
+  const urgLabel = urgency === 'today'    ? '🚨 Move car today!'
+                 : urgency === 'tomorrow' ? '⚠️ Move car tomorrow'
+                 : '✅ All clear';
 
-btnPopupClose.addEventListener('click', hideCarPopup);
-
-btnPopupRename.addEventListener('click', () => {
-  const showing = popupNameInput.style.display !== 'none';
-  popupNameInput.style.display = showing ? 'none' : 'block';
-  if (!showing) { popupNameInput.focus(); popupNameInput.select(); }
-});
-
-popupNameInput.addEventListener('keydown', async e => {
-  if (e.key === 'Enter') await commitRename();
-  if (e.key === 'Escape') popupNameInput.style.display = 'none';
-});
-
-async function commitRename() {
-  const car = cars.find(c => c.id === popupCarId);
-  if (!car || !popupNameInput.value.trim()) return;
-  car.name = popupNameInput.value.trim();
-  popupCarName.textContent = car.name;
-  popupNameInput.style.display = 'none';
-  updateCarSelect();
-  await savePrefs();
-}
-
-btnPopupGps.addEventListener('click', () => {
-  btnPopupGps.disabled = true;
-  btnPopupGps.innerHTML = '<span class="spinner"></span>Locating…';
-  getGPS(async (lat, lon) => {
-    const car = cars.find(c => c.id === popupCarId);
-    if (car) {
-      car.lat = lat; car.lon = lon;
-      car.address = await reverseGeocode(lat, lon);
-      await savePrefs();
+  const NO_SWEEP_RE = /^(no\s+(signage|sweeping|parking|stopping)|n\/a)\b/i;
+  const fmt = arr => {
+    const valid = (arr || []).filter(e => {
+      if (!e || e.length < 2) return false;
+      const d = (e[1] || '').trim();
+      return d && d.toUpperCase() !== 'N/A' && !NO_SWEEP_RE.test(d);
+    });
+    if (!valid.length) return ['No sweeping scheduled'];
+    const seen = new Set(), lines = [];
+    for (const e of valid) {
+      const desc = (e[1] || '').trim();
+      const time = (e[2] || '').trim();
+      const line = (time && time !== 'N/A' && !desc.includes(time)) ? `${normDesc(desc)} – ${time}` : normDesc(desc);
+      if (line && !seen.has(line)) { seen.add(line); lines.push(line); }
+      if (lines.length >= 4) break;
     }
-    btnPopupGps.disabled = false;
-    btnPopupGps.textContent = '📍 Update to GPS';
-    hideCarPopup();
-    if (car) { setNearestRegion(lat, lon); await checkCarWithRender(car); }
-  }, msg => {
-    btnPopupGps.disabled = false;
-    btnPopupGps.textContent = '📍 Update to GPS';
-    alert(`GPS error: ${msg}`);
-  });
-});
+    return lines.length ? lines : ['No sweeping'];
+  };
+  const side  = sched.car_side || 'even';
+  const lines = fmt(side === 'even' ? sched.schedule_even : sched.schedule_odd).map(abbreviate);
+  const itemsHTML = lines.map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('');
 
-btnPopupManual.addEventListener('click', () => {
-  const id = popupCarId;
-  hideCarPopup();
-  startPlacing(id); // drag-to-place in edit mode
-});
-
-btnPopupAddr.addEventListener('click', () => {
-  const showing = popupAddrWrap.style.display !== 'none';
-  popupAddrWrap.style.display = showing ? 'none' : 'flex';
-  if (!showing) popupAddrInput.focus();
-});
-
-async function geocodeAndUpdate() {
-  const query = popupAddrInput.value.trim();
-  if (!query) return;
-  btnPopupAddrGo.disabled = true;
-  btnPopupAddrGo.textContent = '…';
-  try {
-    const res  = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`);
-    const data = await res.json();
-    if (!data.length) { alert('Address not found.'); return; }
-    const lat = parseFloat(data[0].lat), lon = parseFloat(data[0].lon);
-    const car = cars.find(c => c.id === popupCarId);
-    if (car) { car.lat = lat; car.lon = lon; car.address = query; await savePrefs(); setNearestRegion(lat, lon); }
-    hideCarPopup();
-    overlayCarMarkers();
-  } catch (_) {
-    alert('Geocoding failed — check your connection.');
-  }
-  btnPopupAddrGo.disabled = false;
-  btnPopupAddrGo.textContent = '→';
+  return `<div class="ce-sched-urgency" style="color:${urgColor}">${urgLabel}</div>`
+       + `<div class="ce-sched-header">Street sweeping schedule:</div>`
+       + itemsHTML;
 }
-btnPopupAddrGo.addEventListener('click', geocodeAndUpdate);
-popupAddrInput.addEventListener('keydown', e => { if (e.key === 'Enter') geocodeAndUpdate(); });
 
-btnPopupRemove.addEventListener('click', async () => {
-  const removedId = popupCarId;
-  delete carSchedules[removedId];
-  cars = cars.filter(c => c.id !== removedId);
-  if (activeCarId === removedId) activeCarId = cars[0]?.id ?? null;
-  hideCarPopup();
-  updateCarSelect();
-  await savePrefs();
-  overlayCarMarkers();
-  if (cars.length > 0 && activeCarId) {
-    updateStatusFromSchedules();
-  } else {
-    setStatus('idle', 'Add a car to check street sweeping.');
-  }
-});
+function renderCarsPanel() {
+  if (carsPanel.contains(document.activeElement)) return; // don't disrupt inline editing
+  // Remove all car entries but keep the legend
+  for (const el of [...carsPanel.querySelectorAll('.car-entry')]) el.remove();
+  cars.forEach((car, i) => {
+    const color   = carColor(i);
+    const sched   = carSchedules[car.id];
+    const urgency = sched?.urgency || 'safe';
+    const urgColor = urgency === 'today'    ? '#ef4444'
+                   : urgency === 'tomorrow' ? '#f97316' : '#2563eb';
+    const urgBg    = urgency === 'today'    ? '#fee2e2'
+                   : urgency === 'tomorrow' ? '#ffedd5'
+                   : '#ffffff';
+    const addrText = abbreviate(car.address || sched?.address || '');
+
+    const entry = document.createElement('div');
+    entry.className = 'car-entry' + (car.id === _selectedCarId ? ' selected' : '');
+    entry.dataset.id = car.id;
+    entry.style.cssText = `--car-color:${color};--urg-color:${urgColor};--urg-bg:${urgBg}`;
+    // Clicking card body (not buttons/active editors) selects the car
+    entry.addEventListener('click', e => {
+      if (e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;
+      setSelectedCar(car.id);
+    });
+
+    entry.innerHTML = `
+      <div class="ce-header">
+        <span class="ce-dot"></span>
+        <span class="ce-name" contenteditable="false" data-id="${esc(car.id)}" title="Double-click to edit">${esc(car.name)}</span>
+        <button class="ce-remove" data-id="${esc(car.id)}" title="Remove">✕</button>
+      </div>
+      <div class="ce-addr" contenteditable="false" data-id="${esc(car.id)}" title="Double-click to edit">${esc(addrText)}</div>
+      <div class="ce-sched">${scheduleHTML(sched)}</div>
+      <div class="ce-actions">
+        <button class="ce-btn ce-btn-gps" data-id="${esc(car.id)}">📍 GPS</button>
+        <button class="ce-btn ce-btn-place" data-id="${esc(car.id)}">📌 Set location</button>
+      </div>`;
+
+    // ── Name editing (double-click to enter edit mode) ──
+    const nameEl = entry.querySelector('.ce-name');
+    nameEl.addEventListener('dblclick', () => {
+      nameEl.contentEditable = 'true'; nameEl.focus();
+      const r = document.createRange(); r.selectNodeContents(nameEl);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    });
+    nameEl.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); nameEl.blur(); }
+      if (e.key === 'Escape') { nameEl.textContent = car.name; nameEl.blur(); }
+    });
+    nameEl.addEventListener('blur', async () => {
+      nameEl.contentEditable = 'false';
+      const v = nameEl.textContent.trim();
+      if (v && v !== car.name) { car.name = v; updateCarSelect(); await savePrefs(); }
+      else nameEl.textContent = car.name;
+    });
+
+    // ── Address editing (double-click to enter edit mode, geocode on commit) ──
+    const addrEl = entry.querySelector('.ce-addr');
+    addrEl.addEventListener('dblclick', () => {
+      addrEl.contentEditable = 'true'; addrEl.focus();
+      const r = document.createRange(); r.selectNodeContents(addrEl);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    });
+    addrEl.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); addrEl.blur(); }
+      if (e.key === 'Escape') { addrEl.textContent = addrText; addrEl.blur(); }
+    });
+    addrEl.addEventListener('blur', async () => {
+      addrEl.contentEditable = 'false';
+      const q = addrEl.textContent.trim();
+      if (!q || q === addrText) { addrEl.textContent = addrText; return; }
+      addrEl.textContent = '…';
+      try {
+        const res  = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&q=${encodeURIComponent(q)}`);
+        const hits = await res.json();
+        if (!hits.length) {
+          addrEl.style.color = 'var(--red)';
+          addrEl.textContent = '⚠️ Address not found';
+          setTimeout(() => { addrEl.style.color = ''; addrEl.textContent = addrText; }, 2500);
+          return;
+        }
+        // Build canonical address from Nominatim address components
+        const a = hits[0].address || {};
+        const num    = a.house_number || '';
+        const street = a.road || a.pedestrian || a.footway || '';
+        const city   = a.city || a.town || a.village || '';
+        const canonical = [num, street].filter(Boolean).join(' ') + (city ? `, ${city}` : '');
+        car.lat = parseFloat(hits[0].lat); car.lon = parseFloat(hits[0].lon);
+        car.address = canonical || hits[0].display_name;
+        await savePrefs();
+        setNearestRegion(car.lat, car.lon);
+        overlayCarMarkers();
+        checkCarSilently(car);
+      } catch (_) { addrEl.textContent = addrText; }
+    });
+
+    // ── GPS button ──
+    entry.querySelector('.ce-btn-gps').addEventListener('click', () => {
+      const btn = entry.querySelector('.ce-btn-gps');
+      btn.disabled = true; btn.textContent = '…';
+      getGPS(async (lat, lon) => {
+        car.lat = lat; car.lon = lon;
+        car.address = await reverseGeocode(lat, lon);
+        await savePrefs();
+        btn.disabled = false; btn.textContent = '📍 GPS';
+        setNearestRegion(lat, lon); setLocationKnown('gps', lat, lon);
+        // Immediately pan to new position (don't wait for /check to complete)
+        try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat, lon }, 'mapbox.zoom': 16 }); } catch(_) {}
+        await checkCarWithRender(car);
+      }, msg => { btn.disabled = false; btn.textContent = '📍 GPS'; alert(`GPS: ${msg}`); });
+    });
+
+    // ── Set location button ──
+    entry.querySelector('.ce-btn-place').addEventListener('click', () => startPlacing(car.id));
+
+    // ── Remove button ──
+    entry.querySelector('.ce-remove').addEventListener('click', async () => {
+      delete carSchedules[car.id];
+      cars = cars.filter(c => c.id !== car.id);
+      if (activeCarId === car.id) activeCarId = cars[0]?.id ?? null;
+      if (_selectedCarId === car.id) _selectedCarId = null;
+      updateCarSelect();
+      await savePrefs();
+      overlayCarMarkers();
+      renderCarsPanel();
+      if (!cars.length) setStatus('idle', 'Add a car to check street sweeping.');
+      else updateStatusFromSchedules();
+    });
+
+    carsPanel.appendChild(entry);
+  });
+}
 
 // ── API fetch ─────────────────────────────────────────────────────────────────
 function apiFetch(path, opts = {}) {
@@ -1005,17 +1300,34 @@ document.getElementById('btn-locate').addEventListener('click', () => {
   btn.innerHTML = '<span class="spinner" style="border-top-color:#2563eb;border-color:rgba(0,0,0,.15)"></span>';
   getGPS(async (lat, lon) => {
     btn.disabled = false; btn.textContent = '📍';
-    setLocationKnown('gps');
+    setLocationKnown('gps', lat, lon);
     setNearestRegion(lat, lon);
-    if (cars.length > 0) {
-      try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat, lon }, 'mapbox.zoom': 16 }); } catch (_) {}
-    } else {
-      await loadAreaMap(lat, lon, 16);
-    }
+    // Show "you are here" pin, pan to location
+    if (_gpsLocPinTimer) clearTimeout(_gpsLocPinTimer);
+    _gpsLocPin = { lat, lon };
+    try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat, lon }, 'mapbox.zoom': 16 }); } catch (_) {}
+    overlayCarMarkers(); // render pin immediately
+    updateGpsPinPopup();
+    // Always load zone data around GPS location (handles crossing regions)
+    await loadAreaMap(lat, lon, 16);
+    updateGpsPinPopup();
+    // Auto-clear pin after 15s
+    _gpsLocPinTimer = setTimeout(() => {
+      _gpsLocPin = null; _gpsLocPinTimer = null;
+      document.getElementById('gps-pin-popup').style.display = 'none';
+      overlayCarMarkers();
+    }, 15000);
+    // Refresh car schedules in background
+    for (const car of cars) checkCarSilently(car);
   }, msg => { btn.disabled = false; btn.textContent = '📍'; alert(`GPS: ${msg}`); });
 });
 
 function setStatus(cls, text) { statusText.className = cls; statusText.textContent = text; }
+
+// ── Map style picker ──────────────────────────────────────────────────────────
+document.getElementById('sel-map-style').addEventListener('change', function() {
+  try { Plotly.relayout(mapDiv, { 'mapbox.style': this.value }); } catch(_) {}
+});
 
 // ── Service Worker ────────────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
