@@ -196,17 +196,17 @@
     }
     #btn-gps-add { width: auto; margin: 0; padding: 4px 10px; font-size: .76rem; font-weight: 600; border-radius: 6px; }
 
-    /* ── Inline name panel — single line ── */
+    /* ── Inline name panel — matches GPS pin popup in size/style ── */
     #name-panel {
       position: fixed; z-index: 150; display: none;
       background: var(--card); border: 1px solid var(--border);
-      border-radius: 10px; padding: 7px 9px; overflow: hidden;
-      box-shadow: 0 3px 14px rgba(0,0,0,.16);
+      border-radius: 10px; padding: 5px 8px; overflow: hidden;
+      box-shadow: 0 2px 10px rgba(0,0,0,.14); white-space: nowrap;
     }
     .np-row { display: flex; gap: 6px; align-items: center; }
-    #name-panel-input { flex: 1; padding: 5px 7px; border: 1px solid var(--border); border-radius: 6px; font-size: .85rem; outline: none; min-width: 110px; background: var(--bg); color: var(--text); }
+    #name-panel-input { flex: 1; padding: 4px 7px; border: 1px solid var(--border); border-radius: 6px; font-size: .76rem; outline: none; min-width: 120px; background: var(--bg); color: var(--text); }
     #name-panel-input:focus { border-color: var(--blue); }
-    #btn-np-save { margin: 0; padding: 5px 10px; width: auto; border-radius: 6px; font-size: .82rem; }
+    #btn-np-save { margin: 0; padding: 4px 10px; width: auto; border-radius: 6px; font-size: .76rem; font-weight: 600; }
 
     /* ── Custom hover tooltip ── */
     #custom-hover {
@@ -398,7 +398,6 @@ let _baseFigure    = null;  // last /check figure; used for react updates
 let _tempPin       = null;  // {lat,lon} while naming a new car
 let _ctxScreenX    = 0, _ctxScreenY = 0;
 let _mbPlaceHandler = null;
-let _locationKnown = false;
 let _selectedCarId = null;
 let _locSource = null, _locLat = null, _locLon = null, _locRegion = null, _locCity = null;
 let _mbBgClickHandler = null;
@@ -537,7 +536,6 @@ function nearestRegionNameByCoords(lat, lon) {
 
 // source: 'gps' | 'ip' | false
 function setLocationKnown(source, lat = null, lon = null, city = null) {
-  _locationKnown = !!source;
   _locSource = source || null;
   _locLat = lat; _locLon = lon;
   _locCity = city || null;
@@ -787,14 +785,23 @@ async function loadCities() {
 }
 
 regionSelect.addEventListener('change', () => {
-  const rk = regionSelect.value;
+  const rk    = regionSelect.value;
   const rName = regions[rk]?.name || rk;
-  setStatus('idle', `Loading ${rName}…`);
-  // Immediately pan to region center while data loads
-  const rc = regions[rk]?.center;
-  if (rc) { try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat: rc.lat, lon: rc.lon }, 'mapbox.zoom': 11 }); } catch(_) {} }
+  const rc    = regions[rk]?.center;
+  const newCenter = rc ? { lat: rc.lat, lon: rc.lon } : DEFAULT_CENTER;
 
-  // Find first car whose nearest region matches, or fall back to region center
+  // Instantly clear zone overlays and pan to new region — no waiting for network
+  _baseFigure     = null;
+  _renderedRegion = rk;
+  Plotly.react(mapDiv, buildCarTraces(), {
+    mapbox: { style: getMapboxStyle(), center: newCenter, zoom: 11 },
+    margin: { r: 0, t: 0, l: 0, b: 0 },
+  }, { scrollZoom: true, displayModeBar: false, responsive: true })
+  .then(() => attachPlotlyListeners());
+
+  setStatus('idle', `⏳ Loading ${rName} map…`);
+
+  // Find first car in this region and use its location, else load by region center
   const carInRegion = cars.find(c => {
     let best = null, bd = Infinity;
     for (const [k, r] of Object.entries(regions)) {
@@ -807,9 +814,8 @@ regionSelect.addEventListener('change', () => {
     activeCarId = carInRegion.id;
     updateCarSelect();
     checkCarWithRender(carInRegion);
-  } else {
-    const c = regions[rk]?.center;
-    if (c) loadAreaMap(c.lat, c.lon);
+  } else if (rc) {
+    loadAreaMap(rc.lat, rc.lon);
   }
 });
 
@@ -912,7 +918,6 @@ async function loadAreaMap(lat, lon, zoom = 11) {
     const data = await res.json();
     if (data.figure?.layout?.mapbox) data.figure.layout.mapbox.zoom = zoom;
     renderMap(data.figure);
-    if (_locSource !== 'gps') setLocationKnown('ip');
     setStatus('idle', 'Add a car to check street sweeping.');
   } catch (_) {}
 }
@@ -947,7 +952,6 @@ async function checkCarWithRender(car) {
     const data = await res.json();
     carSchedules[car.id] = data;
     renderMap(data.figure);
-    if (!_locationKnown) setLocationKnown('ip');
     updateStatusFromSchedules();
     renderCarsPanel();
   } catch (e) { clearTimeout(warmupTimer); setStatus('idle', `Network error: ${e.message}`); }
@@ -1061,7 +1065,7 @@ ctxAddCar.addEventListener('click', () => {
 // ── Inline name panel (no overlay) ───────────────────────────────────────────
 function showNamePanel(screenX, screenY) {
   namePanelInput.value = defaultCarName();
-  const pw = 210, ph = 44;
+  const pw = 200, ph = 36;
   // Center the panel horizontally on the trigger point, clamp to viewport
   const left = Math.min(Math.max(screenX - pw / 2, 8), window.innerWidth  - pw - 8);
   const top  = Math.min(screenY, window.innerHeight - ph - 8);
