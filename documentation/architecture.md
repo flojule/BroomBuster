@@ -52,7 +52,7 @@ BroomBuster/
 │   ├── cities.py        City and region definitions (URLs, schemas, bboxes, timezones)
 │   ├── config.py        Credentials from environment variables
 │   ├── data_loader.py   Downloads, caches, and normalises city datasets
-│   ├── gps.py           Traccar API + Nominatim reverse-geocoding (CLI only)
+│   ├── gps.py           Nominatim reverse-geocoding (CLI only)
 │   ├── maps.py          Plotly map builder; returns figure dict for the API
 │   ├── notification.py  Email alert via Gmail SMTP (CLI only)
 │   └── main.py          CLI entry point
@@ -119,4 +119,4 @@ Supabase Auth issues JWTs on login. The frontend stores the session in `localSto
 | Render.com | Hosts the Docker container (API + frontend) | Spins down after 15 min of inactivity; 512 MB RAM; shared CPU |
 | Supabase | Authentication and PostgreSQL | 50,000 MAU; 500 MB database; unlimited API calls |
 
-No other paid or external services are required in the default configuration. The Traccar GPS integration and email notifications are optional and used only by the CLI.
+No other paid or external services are required in the default configuration. Email notifications are optional and used only by the CLI.

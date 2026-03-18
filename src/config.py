@@ -3,9 +3,6 @@ Central configuration — all credentials are loaded from environment variables.
 
 Copy .env.example to .env and fill in your values, or export them in your shell:
 
-    export TRACCAR_URL=https://demo4.traccar.org
-    export TRACCAR_USERNAME=you@example.com
-    export TRACCAR_PASSWORD=secret
     export EMAIL_SENDER=you@example.com
     export EMAIL_RECEIVER=you@example.com
     export EMAIL_PASSWORD=app_password
@@ -18,11 +15,6 @@ try:
     load_dotenv()
 except ImportError:
     pass  # python-dotenv not installed — rely on real environment variables
-
-# Traccar GPS server
-TRACCAR_URL      = os.environ.get("TRACCAR_URL",      "")
-TRACCAR_USERNAME = os.environ.get("TRACCAR_USERNAME", "")
-TRACCAR_PASSWORD = os.environ.get("TRACCAR_PASSWORD", "")
 
 # Email notification (Gmail App Password recommended)
 EMAIL_SENDER   = os.environ.get("EMAIL_SENDER",   "")

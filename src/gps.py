@@ -3,45 +3,8 @@ import pyproj
 import requests
 from geopy.geocoders import Nominatim
 
-import config
-
 _TRANSFORMER = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 _GEOLOCATOR = Nominatim(user_agent="broombuster")
-
-
-def get_GPS_traccar():
-    """Fetch the latest position for the first registered Traccar device."""
-    if not config.TRACCAR_URL:
-        raise ValueError(
-            "TRACCAR_URL not set. "
-            "Export TRACCAR_URL or add it to .env."
-        )
-    if not config.TRACCAR_USERNAME or not config.TRACCAR_PASSWORD:
-        raise ValueError(
-            "Traccar credentials not set. "
-            "Export TRACCAR_USERNAME and TRACCAR_PASSWORD environment variables "
-            "or add them to a .env file."
-        )
-
-    session = requests.Session()
-
-    resp = session.post(
-        f"{config.TRACCAR_URL}/api/session",
-        data={"email": config.TRACCAR_USERNAME, "password": config.TRACCAR_PASSWORD},
-    )
-    resp.raise_for_status()
-
-    devices = session.get(f"{config.TRACCAR_URL}/api/devices").json()
-    if not devices:
-        raise RuntimeError("No devices found on Traccar account.")
-    device_id = devices[0]["id"]
-
-    positions = session.get(f"{config.TRACCAR_URL}/api/positions").json()
-    position = next((p for p in positions if p["deviceId"] == device_id), None)
-    if position is None:
-        raise RuntimeError(f"No position available for device {device_id}.")
-
-    return position["latitude"], position["longitude"], position["fixTime"]
 
 
 def get_street_info(myCar): # gets street from nearest address, problem at corners

@@ -24,10 +24,6 @@ SINGLE_CITY_MODE = False
 # Available keys: "oakland", "san_francisco", "berkeley", "alameda", "chicago_all"
 CITY = "oakland"
 
-# Set USE_LIVE_GPS = True to fetch the car's position from Traccar.
-# Set USE_LIVE_GPS = False to use fixed manual coordinates defined below.
-USE_LIVE_GPS = False
-
 # Manual location override (uses region manual_default when None).
 # Set to your car's position to override.
 # bay_area example: 37.821326, -122.280705  (2931 Chestnut St, Oakland)
@@ -53,8 +49,6 @@ def _parse_args() -> argparse.Namespace:
                    help="Manual latitude override")
     p.add_argument("--lon", type=float, default=None, metavar="LON",
                    help="Manual longitude override")
-    p.add_argument("--live-gps", action="store_true", default=False,
-                   help="Fetch car position from Traccar")
     p.add_argument("--no-plot", action="store_true", default=False,
                    help="Skip the interactive map")
     p.add_argument("--notify", action="store_true", default=False,
@@ -70,11 +64,10 @@ if __name__ == "__main__":
     args = _parse_args()
 
     # CLI arguments override module-level defaults
-    _region       = args.region or REGION
-    _city         = args.city   or CITY
-    _single       = args.single or SINGLE_CITY_MODE
-    _use_live_gps = args.live_gps or USE_LIVE_GPS
-    _manual_lat   = args.lat if args.lat is not None else MANUAL_LAT
+    _region     = args.region or REGION
+    _city       = args.city   or CITY
+    _single     = args.single or SINGLE_CITY_MODE
+    _manual_lat = args.lat if args.lat is not None else MANUAL_LAT
     _manual_lon   = args.lon if args.lon is not None else MANUAL_LON
     _plot         = PLOT and not args.no_plot
     _send_notif   = args.notify or SEND_NOTIFICATION
@@ -120,11 +113,7 @@ if __name__ == "__main__":
     try:
         while True:
             # 1. Update car location
-            if _use_live_gps:
-                print("Fetching GPS position from Traccar…")
-                myCar.get_GPS()
-            else:
-                myCar.set_location(lat, lon)
+            myCar.set_location(lat, lon)
 
             # 2. Tag the car with its nearest city key (used in analysis)
             myCar._city = _nearest_city(myCar.lat, myCar.lon)

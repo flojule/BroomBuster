@@ -20,11 +20,6 @@ class Car:
         self.lon = lon
         self.time = time
 
-    def get_GPS(self):
-        """Fetch latest position from Traccar and update location."""
-        lat, lon, time = gps.get_GPS_traccar()
-        self.set_location(lat, lon, time)
-
     def get_info(self):
         """Reverse-geocode current coordinates to get street name/number and nearby streets."""
         try:
