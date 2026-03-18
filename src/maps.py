@@ -456,10 +456,19 @@ def _build_map_figure(myCar, myCity, schedule_even=None, schedule_odd=None, mess
                     dx, dy = _densify(x, y)
                     sd["dx"] = dx
                     sd["dy"] = dy
-                if be and be not in sd["even"]:
-                    sd["even"].append(be)
-                if bo and bo not in sd["odd"]:
-                    sd["odd"].append(bo)
+                    # Higher-priority row takes precedence; keep any already-set side
+                    if be:
+                        sd["even"] = [be]
+                    if bo:
+                        sd["odd"] = [bo]
+                else:
+                    # Same/lower priority: only fill a side that hasn't been set yet.
+                    # This merges even+odd rows (same geometry, different sides) without
+                    # stacking multiple address-range schedules for the same side.
+                    if be and not sd["even"]:
+                        sd["even"] = [be]
+                    if bo and not sd["odd"]:
+                        sd["odd"] = [bo]
 
     for sd in seg_data.values():
         evens = sd["even"]

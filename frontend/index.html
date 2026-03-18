@@ -79,7 +79,7 @@
     }
     .tb-select { border: 1px solid var(--border); background: var(--bg); color: var(--text); outline: none; }
     #region-select { max-width: 90px; }
-    #car-select    { max-width: 120px; }
+    #sel-map-style { min-width: 80px; }
     #status-text   { flex: 1; font-size: .78rem; font-weight: 600; text-align: center; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; min-width: 60px; }
     #status-text.today    { color: #b91c1c; }
     #status-text.tomorrow { color: #c2410c; }
@@ -128,14 +128,14 @@
       position: absolute; top: 10px; right: 10px; z-index: 20;
       display: flex; flex-direction: column; gap: 8px;
       max-height: calc(100% - 20px); overflow-y: auto;
-      pointer-events: auto;
+      pointer-events: auto; scrollbar-gutter: stable;
     }
     .cars-legend {
       background: var(--card); border: 1px solid var(--border);
       border-radius: 8px; padding: 6px 10px; overflow: hidden;
       font-size: .7rem; display: flex; gap: 8px; flex-wrap: wrap;
       box-shadow: 0 2px 6px rgba(0,0,0,.08);
-      user-select: none;
+      user-select: none; width: 200px; flex-shrink: 0;
     }
     .cars-legend span { white-space: nowrap; font-weight: 500; }
     .car-entry {
@@ -196,17 +196,17 @@
     }
     #btn-gps-add { width: auto; margin: 0; padding: 4px 10px; font-size: .76rem; font-weight: 600; border-radius: 6px; }
 
-    /* ── Inline name panel — matches GPS pin popup in size/style ── */
+    /* ── Inline name panel — overlays ctx-menu at the same position/size ── */
     #name-panel {
-      position: fixed; z-index: 150; display: none;
+      position: fixed; z-index: 200; display: none;
       background: var(--card); border: 1px solid var(--border);
-      border-radius: 10px; padding: 5px 8px; overflow: hidden;
-      box-shadow: 0 2px 10px rgba(0,0,0,.14); white-space: nowrap;
+      border-radius: 10px; padding: 6px 10px; overflow: hidden;
+      box-shadow: 0 4px 14px rgba(0,0,0,.14); white-space: nowrap;
     }
     .np-row { display: flex; gap: 6px; align-items: center; }
-    #name-panel-input { flex: 1; padding: 4px 7px; border: 1px solid var(--border); border-radius: 6px; font-size: .76rem; outline: none; min-width: 120px; background: var(--bg); color: var(--text); }
+    #name-panel-input { flex: 1; padding: 4px 7px; border: 1px solid var(--border); border-radius: 6px; font-size: .85rem; outline: none; min-width: 0; width: 0; background: var(--bg); color: var(--text); }
     #name-panel-input:focus { border-color: var(--blue); }
-    #btn-np-save { margin: 0; padding: 4px 10px; width: auto; border-radius: 6px; font-size: .76rem; font-weight: 600; }
+    #btn-np-save { margin: 0; padding: 4px 10px; width: auto; border-radius: 6px; font-size: .8rem; font-weight: 600; }
 
     /* ── Custom hover tooltip ── */
     #custom-hover {
@@ -255,17 +255,15 @@
     <span class="app-title">🧹 BroomBuster</span>
     <span class="tb-sep"></span>
     <select id="region-select" class="tb-select"></select>
-    <select id="car-select" class="tb-select"></select>
+    <span class="tb-sep"></span>
+    <select id="sel-map-style" class="tb-select">
+      <option value="open-street-map">🗺 Standard</option>
+      <option value="carto-positron" selected>☀️ Light</option>
+      <option value="carto-darkmatter">🌙 Dark</option>
+    </select>
     <span id="status-text" class="idle">—</span>
     <span id="locate-info"></span>
     <button id="btn-locate" class="tb-btn" title="Use GPS location">📍</button>
-    <span class="tb-sep"></span>
-    <select id="sel-map-style" class="tb-select">
-      <option value="open-street-map">🗺 OSM</option>
-      <option value="carto-positron" selected>☀️ Light</option>
-      <option value="carto-darkmatter">🌙 Dark</option>
-      <option value="stamen-toner">⬛ Toner</option>
-    </select>
     <span class="tb-sep"></span>
     <button id="btn-logout" class="tb-btn">Sign out</button>
   </div>
@@ -338,7 +336,7 @@ function setSelectedCar(carId) {
   }
   const car = cars.find(c => c.id === carId);
   if (car && !isCarInView(car)) {
-    try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat: car.lat, lon: car.lon }, 'mapbox.zoom': 16 }); } catch (_) {}
+    try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat: car.lat, lon: car.lon }, 'mapbox.zoom': 16, 'mapbox.bearing': 0 }); } catch (_) {}
   }
   highlightCarOnMap();
 }
@@ -374,13 +372,9 @@ document.getElementById('btn-gps-add').addEventListener('click', () => {
   // Drop a temp pin at GPS loc and open the name panel near the popup
   addTempPin(pendingLat, pendingLon);
   const popup = document.getElementById('gps-pin-popup');
-  const rect  = popup.getBoundingClientRect();
-  showNamePanel(rect.left + rect.width / 2, rect.top);
+  showNamePanel(popup.getBoundingClientRect());
 });
 
-function getMapboxStyle() {
-  return document.getElementById('sel-map-style')?.value || 'carto-positron';
-}
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
@@ -405,6 +399,7 @@ let _mbMoveStartHandler = null, _mbMoveEndHandler = null, _mbMoveHandler = null;
 let _gpsLocPin = null;  // temporary "you are here" pin from locate button
 let _gpsLocPinTimer = null;
 let _plotlyClickHandled = false;  // guards against mbMap bg-click clearing a just-set selection
+let _hoverSuppressed   = false;  // suppress map hover tooltip while cursor is over the cars panel
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
 const authScreen     = document.getElementById('auth-screen');
@@ -417,7 +412,6 @@ const btnSignup      = document.getElementById('btn-signup');
 const btnLogout      = document.getElementById('btn-logout');
 const btnLocate      = document.getElementById('btn-locate');
 const regionSelect   = document.getElementById('region-select');
-const carSelect      = document.getElementById('car-select');
 const statusText     = document.getElementById('status-text');
 const mapDiv         = document.getElementById('map');
 const placeBanner    = document.getElementById('place-banner');
@@ -449,22 +443,20 @@ function showAuth() {
 async function initApp() {
   authScreen.style.display = 'none';
   appScreen.style.display  = 'flex';
-  updateCarSelect();
   renderDefaultMap();
   // Load cities, prefs, and IP location all in parallel for faster startup.
   const [,,ipLoc] = await Promise.all([loadCities(), loadPrefs(), getIPLocation()]);
   if (cars.length > 0) {
     activeCarId = cars[0].id;
-    updateCarSelect();
     setNearestRegion(cars[0].lat, cars[0].lon);
     // Re-center immediately, then load zone overlays in the background.
-    try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat: cars[0].lat, lon: cars[0].lon }, 'mapbox.zoom': 16 }); } catch(_) {}
+    try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat: cars[0].lat, lon: cars[0].lon }, 'mapbox.zoom': 16, 'mapbox.bearing': 0 }); } catch(_) {}
     await checkCarWithRender(cars[0]);
     for (const car of cars.slice(1)) checkCarSilently(car);
   } else if (ipLoc) {
     setNearestRegion(ipLoc.lat, ipLoc.lon);
     setLocationKnown('ip', null, null, ipLoc.city);
-    try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat: ipLoc.lat, lon: ipLoc.lon }, 'mapbox.zoom': 13 }); } catch(_) {}
+    try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat: ipLoc.lat, lon: ipLoc.lon }, 'mapbox.zoom': 13, 'mapbox.bearing': 0 }); } catch(_) {}
     setStatus('idle', 'Loading map…');
     loadAreaMap(ipLoc.lat, ipLoc.lon, 13); // async — overlays load in background
   } else {
@@ -588,10 +580,17 @@ document.addEventListener('click', e => {
   }
 });
 
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    hideCtxMenu();
+    if (namePanel.style.display !== 'none') hideNamePanel();
+  }
+});
+
 // ── Default map ───────────────────────────────────────────────────────────────
 function renderDefaultMap() {
   Plotly.newPlot(mapDiv, [], {
-    mapbox: { style: getMapboxStyle(), center: { lat: DEFAULT_CENTER.lat, lon: DEFAULT_CENTER.lon }, zoom: DEFAULT_CENTER.zoom },
+    mapbox: { style: getMapboxStyle(), center: { lat: DEFAULT_CENTER.lat, lon: DEFAULT_CENTER.lon }, zoom: DEFAULT_CENTER.zoom, bearing: 0 },
     margin: { r: 0, t: 0, l: 0, b: 0 },
   }, { scrollZoom: true, displayModeBar: false, responsive: true }).then(attachPlotlyListeners);
 }
@@ -616,7 +615,7 @@ function renderMap(figure) {
   const zoom = liveMb ? liveMb.getZoom() : (backendMb.zoom ?? DEFAULT_CENTER.zoom);
   const layout = {
     ...(figure.layout || {}),
-    mapbox: { ...backendMb, style: getMapboxStyle(), center, zoom },
+    mapbox: { ...backendMb, style: getMapboxStyle(), center, zoom, bearing: 0 },
     margin: { r: 0, t: 0, l: 0, b: 0 },
   };
   fn(mapDiv, [...figure.data, ...buildCarTraces()], layout, {
@@ -719,6 +718,8 @@ function handlePlotlyClick(data) {
 }
 
 const customHoverEl = document.getElementById('custom-hover');
+carsPanel.addEventListener('mouseenter', () => { _hoverSuppressed = true;  customHoverEl.style.display = 'none'; });
+carsPanel.addEventListener('mouseleave', () => { _hoverSuppressed = false; });
 
 function attachPlotlyListeners() {
   try { mapDiv.removeAllListeners('plotly_click');
@@ -727,6 +728,7 @@ function attachPlotlyListeners() {
   mapDiv.on('plotly_click', handlePlotlyClick);
   // Custom HTML hover (replaces Plotly's hidden hover layer)
   mapDiv.on('plotly_hover', data => {
+    if (_hoverSuppressed) return;
     const pt = data.points?.[0];
     const text = pt?.text;
     if (!text) { customHoverEl.style.display = 'none'; return; }
@@ -744,6 +746,10 @@ function attachPlotlyListeners() {
 
   const mbMap = getMapboxMap();
   if (mbMap) {
+    // Disable map rotation (right-click drag / two-finger rotate)
+    try { mbMap.dragRotate.disable(); } catch (_) {}
+    try { mbMap.touchZoomRotate.disableRotation(); } catch (_) {}
+
     // Background click → deselect car
     if (_mbBgClickHandler) try { mbMap.off('click', _mbBgClickHandler); } catch (_) {}
     _mbBgClickHandler = () => { if (!placingCar && !_plotlyClickHandled) clearCarSelection(); };
@@ -812,7 +818,6 @@ regionSelect.addEventListener('change', () => {
   });
   if (carInRegion) {
     activeCarId = carInRegion.id;
-    updateCarSelect();
     checkCarWithRender(carInRegion);
   } else if (rc) {
     loadAreaMap(rc.lat, rc.lon);
@@ -839,7 +844,6 @@ async function loadPrefs() {
       cars = prefs.cars || [];
     }
   } catch (_) {}
-  updateCarSelect();
 }
 
 async function savePrefs() {
@@ -853,48 +857,6 @@ async function savePrefs() {
   } catch (_) {}
 }
 
-function updateCarSelect() {
-  const prev = carSelect.value;
-  carSelect.innerHTML = '';
-  for (const car of cars) {
-    const opt = document.createElement('option');
-    opt.value = car.id;
-    opt.textContent = car.name;
-    carSelect.appendChild(opt);
-  }
-  const addOpt = document.createElement('option');
-  addOpt.value = '__add__';
-  addOpt.textContent = '＋ Add car…';
-  carSelect.appendChild(addOpt);
-  carSelect.value = activeCarId || (prev !== '__add__' ? prev : '') || (cars[0]?.id ?? '');
-}
-
-carSelect.addEventListener('change', () => {
-  const val = carSelect.value;
-  if (val === '__add__') {
-    carSelect.value = activeCarId || cars[0]?.id || '';
-    startPlacing(); // drag-map to select location
-    return;
-  }
-  activeCarId = val || null;
-  if (activeCarId) {
-    const car = cars.find(c => c.id === activeCarId);
-    if (car) {
-      setNearestRegion(car.lat, car.lon);
-      // Immediately re-center on the car (no network wait)
-      try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat: car.lat, lon: car.lon }, 'mapbox.zoom': 16 }); } catch(_) {}
-      if (carSchedules[car.id]?.figure) {
-        // Cache hit: render zone map instantly, refresh silently in background
-        renderMap(carSchedules[car.id].figure);
-        updateStatusFromSchedules();
-        renderCarsPanel();
-        checkCarSilently(car);
-      } else {
-        checkCarWithRender(car);
-      }
-    }
-  }
-});
 
 // IP-based approximate location — no permission prompt, works server-side too.
 async function getIPLocation() {
@@ -1005,7 +967,6 @@ function stopPlacing() {
   placingCar    = false;
   placingEditId = null;
   placeBanner.classList.remove('active');
-  carSelect.value = activeCarId || '';
 
   // Remove the mapbox click listener if still attached.
   const mbMap = getMapboxMap();
@@ -1034,12 +995,11 @@ async function commitPlacement(lat, lon) {
     // Adding a new car — drop temp pin, show name panel next to it.
     pendingLat = lat; pendingLon = lon;
     addTempPin(lat, lon);
-    const sc   = latLonToScreen(lat, lon);
-    const rect = mapDiv.getBoundingClientRect();
-    showNamePanel(
-      sc ? sc.x : rect.left + rect.width  / 2,
-      sc ? sc.y : rect.top  + rect.height / 2
-    );
+    const sc     = latLonToScreen(lat, lon);
+    const mapRect = mapDiv.getBoundingClientRect();
+    const anchorX = sc ? sc.x : mapRect.left + mapRect.width  / 2;
+    const anchorY = sc ? sc.y : mapRect.top  + mapRect.height / 2;
+    showNamePanel({ left: anchorX, top: anchorY, width: ctxMenu.offsetWidth || 160 });
   }
 }
 
@@ -1057,21 +1017,19 @@ function showCtxMenu(x, y) {
 function hideCtxMenu() { ctxMenu.style.display = 'none'; }
 
 ctxAddCar.addEventListener('click', () => {
+  const rect = ctxMenu.getBoundingClientRect();
   hideCtxMenu();
   addTempPin(pendingLat, pendingLon);
-  showNamePanel(_ctxScreenX, _ctxScreenY);
+  showNamePanel(rect);
 });
 
 // ── Inline name panel (no overlay) ───────────────────────────────────────────
-function showNamePanel(screenX, screenY) {
-  namePanelInput.value = defaultCarName();
-  const pw = 200, ph = 36;
-  // Center the panel horizontally on the trigger point, clamp to viewport
-  const left = Math.min(Math.max(screenX - pw / 2, 8), window.innerWidth  - pw - 8);
-  const top  = Math.min(screenY, window.innerHeight - ph - 8);
-  namePanel.style.left    = left + 'px';
-  namePanel.style.top     = top  + 'px';
-  namePanel.style.display = 'block';
+function showNamePanel(rect) {
+  namePanelInput.value     = defaultCarName();
+  namePanel.style.left     = rect.left  + 'px';
+  namePanel.style.top      = rect.top   + 'px';
+  namePanel.style.width = rect.width + 'px';
+  namePanel.style.display  = 'block';
   setTimeout(() => { namePanelInput.focus(); namePanelInput.select(); }, 30);
 }
 
@@ -1103,7 +1061,6 @@ async function savePendingCar() {
   }
   await savePrefs();
   activeCarId = id;
-  updateCarSelect();
   setNearestRegion(pendingLat, pendingLon);
   overlayCarMarkers();
   checkCarSilently(cars[cars.length - 1]); // schedule for the new car
@@ -1157,7 +1114,8 @@ function scheduleHTML(sched) {
 }
 
 function renderCarsPanel() {
-  if (carsPanel.contains(document.activeElement)) return; // don't disrupt inline editing
+  const ae = document.activeElement;
+  if (carsPanel.contains(ae) && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return; // don't disrupt inline editing
   // Remove all car entries but keep the legend
   for (const el of [...carsPanel.querySelectorAll('.car-entry')]) el.remove();
   cars.forEach((car, i) => {
@@ -1263,7 +1221,7 @@ function renderCarsPanel() {
         btn.disabled = false; btn.textContent = '📍 GPS';
         setNearestRegion(lat, lon); setLocationKnown('gps', lat, lon);
         // Immediately pan to new position (don't wait for /check to complete)
-        try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat, lon }, 'mapbox.zoom': 16 }); } catch(_) {}
+        try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat, lon }, 'mapbox.zoom': 16, 'mapbox.bearing': 0 }); } catch(_) {}
         await checkCarWithRender(car);
       }, msg => { btn.disabled = false; btn.textContent = '📍 GPS'; alert(`GPS: ${msg}`); });
     });
@@ -1277,7 +1235,6 @@ function renderCarsPanel() {
       cars = cars.filter(c => c.id !== car.id);
       if (activeCarId === car.id) activeCarId = cars[0]?.id ?? null;
       if (_selectedCarId === car.id) _selectedCarId = null;
-      updateCarSelect();
       await savePrefs();
       overlayCarMarkers();
       renderCarsPanel();
@@ -1309,7 +1266,7 @@ document.getElementById('btn-locate').addEventListener('click', () => {
     // Show "you are here" pin, pan to location
     if (_gpsLocPinTimer) clearTimeout(_gpsLocPinTimer);
     _gpsLocPin = { lat, lon };
-    try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat, lon }, 'mapbox.zoom': 16 }); } catch (_) {}
+    try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat, lon }, 'mapbox.zoom': 16, 'mapbox.bearing': 0 }); } catch (_) {}
     overlayCarMarkers(); // render pin immediately
     updateGpsPinPopup();
     // Always load zone data around GPS location (handles crossing regions)
@@ -1329,8 +1286,13 @@ document.getElementById('btn-locate').addEventListener('click', () => {
 function setStatus(cls, text) { statusText.className = cls; statusText.textContent = text; }
 
 // ── Map style picker ──────────────────────────────────────────────────────────
-document.getElementById('sel-map-style').addEventListener('change', function() {
-  try { Plotly.relayout(mapDiv, { 'mapbox.style': this.value }); } catch(_) {}
+let _mapStyle = 'carto-positron';
+
+function getMapboxStyle() { return _mapStyle; }
+
+document.getElementById('sel-map-style').addEventListener('change', function () {
+  _mapStyle = this.value;
+  try { Plotly.relayout(mapDiv, { 'mapbox.style': _mapStyle, 'mapbox.bearing': 0 }); } catch (_) {}
 });
 
 // ── Service Worker ────────────────────────────────────────────────────────────

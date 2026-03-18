@@ -195,11 +195,8 @@ def check_street_sweeping(myCar, myCity):
                 if g is not None and not g.is_empty and g.contains(car_pt):
                     _collect(row)
 
-    # Car side is determined by address parity
-    if myNumber and myNumber % 2 == 0:
-        schedule = list(schedule_even)
-    else:
-        schedule = list(schedule_odd)
+    # Always check both sides so a car on either side of the street is alerted
+    schedule = list(schedule_even | schedule_odd)
 
     schedule_even = list(schedule_even)
     schedule_odd  = list(schedule_odd)
