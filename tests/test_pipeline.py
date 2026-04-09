@@ -122,13 +122,15 @@ class TestBayAreaPipeline:
             dates = analysis.parse_sweeping_code(entry[0])
             assert all(isinstance(d, datetime.date) for d in dates)
 
-    def test_correct_side_for_odd_number(self, bay_area_3857):
-        """2931 is odd — schedule should draw from the odd side."""
+    def test_schedule_is_union_of_both_sides(self, bay_area_3857):
+        """schedule must be the union of both sides so the car is warned
+        regardless of which side of the street is being swept."""
         myCar = _make_car(self.LAT, self.LON, self.STREET, self.NUMBER, self.CITY)
         schedule, schedule_even, schedule_odd, _ = analysis.check_street_sweeping(
             myCar, bay_area_3857
         )
-        assert schedule == schedule_odd
+        expected = list(set(schedule_even) | set(schedule_odd))
+        assert set(schedule) == set(expected)
 
     # -- check_day_street_sweeping -------------------------------------------
 

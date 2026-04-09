@@ -77,8 +77,7 @@ BroomBuster/
 │   └── build_alameda_geojson.py     Converts Alameda PDF schedules to GeoJSON
 │
 ├── tests/               pytest suite covering analysis, data loading, pipeline
-├── Dockerfile           Docker image for Render.com
-└── render.yaml          Render service configuration
+└── Dockerfile           Docker image
 ```
 
 ---

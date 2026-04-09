@@ -34,6 +34,22 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import geopandas
 import numpy as np
 import requests
+import normalize
+from collections import OrderedDict
+import threading
+
+# In-memory LRU cache for already-read FlatGeobuf files: path -> (mtime, gdf)
+# Use an OrderedDict and a small max size to bound memory usage.
+MAX_GDF_CACHE_ENTRIES = int(os.environ.get("MAX_GDF_CACHE_ENTRIES", "5"))
+_GDF_CACHE: "OrderedDict[str, tuple[float, geopandas.GeoDataFrame]]" = OrderedDict()
+_GDF_CACHE_LOCK = threading.Lock()
+
+# Prefer pyogrio when available for faster reads
+try:
+    import pyogrio  # type: ignore
+    _HAS_PYOGRIO = True
+except Exception:
+    _HAS_PYOGRIO = False
 from shapely.geometry import box as _shapely_box
 
 from cities import CITIES
@@ -42,15 +58,72 @@ from cities import CITIES
 # Public API
 # ---------------------------------------------------------------------------
 
+_SCHEMA_COLS = [
+    "STREET_NAME",
+    "STREET_KEY",
+    "STREET_DISPLAY",
+    "DAY_EVEN", "DAY_ODD",
+    "DESC_EVEN", "DESC_ODD",
+    "TIME_EVEN", "TIME_ODD",
+    "L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD",
+]
+
+
 def load_city_data(city_key: str, *, force_refresh: bool = False) -> geopandas.GeoDataFrame:
-    """Return a normalised GeoDataFrame for the given city key."""
-    city = CITIES[city_key]
+    """Return a normalised GeoDataFrame for the given city key (EPSG:4326).
+
+    On first call, the raw source is normalised and saved as a FlatGeobuf file
+    (``city['fgb_path']``). Subsequent calls read that file directly — no
+    normalisation overhead at runtime.  Pass ``force_refresh=True`` to delete
+    the FGB (and, for auto-download cities, the raw source) and rebuild.
+    """
+    city       = CITIES[city_key]
     local_path = os.path.join(_ROOT, city["local_path"])
+    fgb_raw    = city.get("fgb_path", "")
+    fgb_path   = os.path.join(_ROOT, fgb_raw) if fgb_raw else None
 
-    if force_refresh and os.path.exists(local_path):
-        os.remove(local_path)
-        print(f"Removed cached data for {city['name']}.")
+    if force_refresh:
+        # Always drop the FGB so it gets rebuilt.
+        if fgb_path and os.path.exists(fgb_path):
+            os.remove(fgb_path)
+            print(f"  Removed FGB cache for {city['name']}.")
+        # Only drop the raw source when we can re-download it.
+        if city.get("url") and os.path.exists(local_path):
+            os.remove(local_path)
+            print(f"  Removed raw source for {city['name']}.")
 
+    # Fast path: FGB already built → read from disk or in-memory cache.
+    if fgb_path and os.path.exists(fgb_path):
+        mtime = os.path.getmtime(fgb_path)
+        with _GDF_CACHE_LOCK:
+            cached = _GDF_CACHE.get(fgb_path)
+            if cached and cached[0] == mtime:
+                # Move to end (most-recently-used)
+                _GDF_CACHE.move_to_end(fgb_path)
+                return cached[1].copy()
+        # Read using pyogrio where possible for better perf, fall back to geopandas default
+        if _HAS_PYOGRIO:
+            try:
+                gdf = geopandas.read_file(fgb_path, engine="pyogrio")
+            except Exception:
+                gdf = geopandas.read_file(fgb_path)
+        else:
+            gdf = geopandas.read_file(fgb_path)
+        # Post-process read GDF for in-memory consumption: for Chicago we
+        # prefer a readable `STREET_NAME` (e.g. "Ward 05, Section 03"). The
+        # on-disk FGB keeps `STREET_NAME` uppercase for storage consistency.
+        if city.get("schema") == "chicago" and "STREET_DISPLAY" in gdf.columns:
+            gdf = gdf.copy()
+            gdf["STREET_NAME"] = gdf["STREET_DISPLAY"]
+        with _GDF_CACHE_LOCK:
+            _GDF_CACHE[fgb_path] = (mtime, gdf)
+            _GDF_CACHE.move_to_end(fgb_path)
+            # Evict oldest if over capacity
+            while len(_GDF_CACHE) > MAX_GDF_CACHE_ENTRIES:
+                _GDF_CACHE.popitem(last=False)
+        return gdf.copy()
+
+    # --- Slow path: build from raw source ---
     if not os.path.exists(local_path):
         url = city.get("url")
         if not url:
@@ -66,16 +139,21 @@ def load_city_data(city_key: str, *, force_refresh: bool = False) -> geopandas.G
 
     gdf = geopandas.read_file(local_path)
 
-    # Optional geographic clip (e.g. Edgewater neighbourhood only).
-    # Reproject to EPSG:4326 for the intersection test (bbox is always in degrees)
-    # but keep the original CRS for the returned GDF so callers can reproject as needed.
+    # Optional geographic clip.  Reproject to EPSG:4326 for the intersection
+    # test (bbox coords are always degrees), keep original CRS for normalisation.
     if "bbox" in city:
         lat_min, lon_min, lat_max, lon_max = city["bbox"]
         clip = _shapely_box(lon_min, lat_min, lon_max, lat_max)
         gdf_4326 = gdf.to_crs("EPSG:4326") if (gdf.crs and not gdf.crs.equals("EPSG:4326")) else gdf
         gdf = gdf[gdf_4326.geometry.intersects(clip)].copy()
 
-    return _normalise(gdf, city["schema"])
+    gdf = _normalise(gdf, city["schema"])
+
+    # Persist as FGB for fast future loads.
+    if fgb_path:
+        _save_fgb(gdf, fgb_path)
+
+    return gdf
 
 
 def load_region_data(region_key: str, *, force_refresh: bool = False) -> geopandas.GeoDataFrame:
@@ -117,6 +195,41 @@ def load_region_data(region_key: str, *, force_refresh: bool = False) -> geopand
     )
     print(f"Region ready — {len(combined)} total segments.")
     return combined
+
+
+# ---------------------------------------------------------------------------
+# FlatGeobuf helpers
+# ---------------------------------------------------------------------------
+
+def _save_fgb(gdf: geopandas.GeoDataFrame, fgb_path: str) -> None:
+    """Write a normalised GDF to FlatGeobuf (schema columns + geometry, EPSG:4326)."""
+    cols = [c for c in _SCHEMA_COLS if c in gdf.columns]
+    out = gdf[cols + ["geometry"]].copy()
+    # Reproject to EPSG:4326 so every FGB is in a consistent CRS.
+    if out.crs and not out.crs.equals("EPSG:4326"):
+        out = out.to_crs("EPSG:4326")
+    os.makedirs(os.path.dirname(os.path.abspath(fgb_path)), exist_ok=True)
+    # Persist a disk-friendly copy: ensure stored STREET_NAME is uppercase
+    disk_out = out.copy()
+    if "STREET_NAME" in disk_out.columns:
+        try:
+            disk_out["STREET_NAME"] = disk_out["STREET_NAME"].astype(str).str.upper()
+        except Exception:
+            pass
+    disk_out.to_file(fgb_path, driver="FlatGeobuf")
+    mb = os.path.getsize(fgb_path) / 1_048_576
+    print(f"  Saved FGB → {fgb_path}  ({mb:.1f} MB)")
+    try:
+        mtime = os.path.getmtime(fgb_path)
+        with _GDF_CACHE_LOCK:
+            # Cache the readable in-memory copy (out) while the on-disk file
+            # stores an uppercase STREET_NAME where applicable.
+            _GDF_CACHE[fgb_path] = (mtime, out.copy())
+            _GDF_CACHE.move_to_end(fgb_path)
+            while len(_GDF_CACHE) > MAX_GDF_CACHE_ENTRIES:
+                _GDF_CACHE.popitem(last=False)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +281,11 @@ def _normalise_oakland(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
         out["NAME"].fillna("").str.strip()
         + " "
         + out["TYPE"].fillna("").str.strip()
-    ).str.strip()
+    ).str.strip().str.upper()
+    # Add canonical key and readable short display form so downstream code
+    # doesn't need to re-normalise on every access.
+    out["STREET_KEY"] = out["STREET_NAME"].map(lambda v: normalize.street_name(v) if isinstance(v, str) else "")
+    out["STREET_DISPLAY"] = out["STREET_NAME"].map(lambda v: normalize.street_display(v) if isinstance(v, str) else "")
     out["DESC_EVEN"] = out.get("DescDayEve", pd_series_none(out))
     out["DESC_ODD"]  = out.get("DescDayOdd", pd_series_none(out))
     out["TIME_EVEN"] = out.get("DescTimeEv", pd_series_none(out))
@@ -246,6 +363,8 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     out["STREET_NAME"] = (
         out[name_col].fillna("").str.strip().str.upper() if name_col else ""
     )
+    out["STREET_KEY"] = out["STREET_NAME"].map(lambda v: normalize.street_name(v) if isinstance(v, str) else "")
+    out["STREET_DISPLAY"] = out["STREET_NAME"].map(lambda v: normalize.street_display(v) if isinstance(v, str) else "")
     for addr_cn in ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD"):
         out[addr_cn] = np.nan
 
@@ -410,9 +529,13 @@ def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
         descs.append(desc)
         w = str(row.get("ward", "?")).zfill(2)
         s = str(row.get("section", "?")).zfill(2)
+        # Keep readable title-case in-memory (e.g. "Ward 05, Section 03")
         names.append(f"Ward {w}, Section {s}")
 
+    # Keep the in-memory STREET_NAME in readable form (Title / mixed-case)
     out["STREET_NAME"] = names
+    out["STREET_KEY"] = out["STREET_NAME"].map(lambda v: normalize.street_name(v) if isinstance(v, str) else "")
+    out["STREET_DISPLAY"] = out["STREET_NAME"].map(lambda v: normalize.street_display(v) if isinstance(v, str) else "")
     out["DAY_EVEN"]    = day_codes
     out["DAY_ODD"]     = day_codes
     out["DESC_EVEN"]   = descs
@@ -443,5 +566,12 @@ def _normalise_prebuilt(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     for col in ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD"):
         if col not in out.columns:
             out[col] = np.nan
+    # Ensure STREET_KEY and STREET_DISPLAY exist and are derived from STREET_NAME
+    if "STREET_NAME" in out.columns:
+        out["STREET_KEY"] = out["STREET_NAME"].map(lambda v: normalize.street_name(v) if isinstance(v, str) else "")
+        out["STREET_DISPLAY"] = out["STREET_NAME"].map(lambda v: normalize.street_display(v) if isinstance(v, str) else "")
+    else:
+        out["STREET_KEY"] = ""
+        out["STREET_DISPLAY"] = ""
     return out
 

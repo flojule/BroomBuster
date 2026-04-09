@@ -1,35 +1,37 @@
+from functools import lru_cache
+
 import numpy as np
 import pyproj
 import requests
 from geopy.geocoders import Nominatim
+from shapely.geometry import Point as _Point
+
+import normalize as _normalize
 
 _TRANSFORMER = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 _GEOLOCATOR = Nominatim(user_agent="broombuster")
 
 
-def get_street_info(myCar): # gets street from nearest address, problem at corners
-
-    location = _GEOLOCATOR.reverse((myCar.lat, myCar.lon), exactly_one=True)
+@lru_cache(maxsize=1024)
+def _reverse_geocode(lat: float, lon: float):
+    location = _GEOLOCATOR.reverse((lat, lon), exactly_one=True)
     if location is None:
         return None, None
     myStreetName = location.raw['address'].get('road')  # type: ignore[union-attr]
     raw_num = location.raw['address'].get('house_number')  # type: ignore[union-attr]
-    myNumber = None
-    if raw_num:
-        # house_number can be a range like "6321-6323"; take the first number
-        try:
-            myNumber = int(raw_num.split("-")[0].strip())
-        except (ValueError, TypeError):
-            pass
-
+    myNumber = _normalize.house_number(raw_num) if raw_num else None
     return myStreetName, myNumber
 
-def get_nearby_streets(myCar):
 
+def get_street_info(myCar):
+    return _reverse_geocode(round(myCar.lat, 4), round(myCar.lon, 4))
+
+def get_nearby_streets(myCar):
+    """Legacy Overpass-based lookup — kept for offline/CLI use only.
+    The API server uses get_nearby_streets_from_gdf() instead."""
     point = _TRANSFORMER.transform(myCar.lon, myCar.lat)
     radius = 100
 
-    # Overpass QL query to get nearby roads (within 100 meters)
     query = f"""
     [out:json];
     way(around:{radius},{myCar.lat},{myCar.lon})["highway"];
@@ -37,8 +39,8 @@ def get_nearby_streets(myCar):
     """
 
     url = "https://overpass-api.de/api/interpreter"
-    response = requests.post(url, data={'data': query})
     try:
+        response = requests.post(url, data={'data': query})
         data = response.json()
     except Exception:
         data = {"elements": []}
@@ -51,24 +53,44 @@ def get_nearby_streets(myCar):
             distance = get_distance_point_polyline(point, polyline)
             myStreets.append((name, distance))
 
-    # Sort by distance
     myStreets.sort(key=lambda x: x[1])
-
     return myStreets
 
 
-def get_distance_point_line(point, point1, point2):  # points are projected (EPSG:3857)
+def get_nearby_streets_from_gdf(lat: float, lon: float, gdf_3857) -> list:
+    """Return [(street_name, distance_m), ...] using the in-memory GDF spatial index.
 
-    d12 = np.sqrt((point2[1] - point1[1])**2 + (point2[0] - point1[0])**2)
-    area = np.abs(
-        (point2[1] - point1[1]) * point[0]
-        - (point2[0] - point1[0]) * point[1]
-        + point2[0] * point1[1]
-        - point2[1] * point1[0]
-    )
-    distance = float(area / d12)
+    Replaces the Overpass API call entirely — no network request, uses the
+    already-loaded street data with a spatial index query for speed.
+    """
+    x, y = _TRANSFORMER.transform(lon, lat)
+    pt = _Point(x, y)
 
-    return distance
+    # Candidates within 250 m bounding box
+    candidates = gdf_3857.sindex.query(pt.buffer(250))
+    # Use STREET_KEY for uniqueness/matching, but return STREET_DISPLAY (or STREET_NAME) for UI
+    best: dict = {}  # street_key -> (display_name, distance)
+    for i in candidates:
+        row = gdf_3857.iloc[i]
+        # Prefer explicit STREET_KEY / STREET_DISPLAY columns when present
+        key = row.get("STREET_KEY") or None
+        display = row.get("STREET_DISPLAY") or row.get("STREET_NAME")
+        if not isinstance(display, str) or display.strip().upper() in ("", "NAN", "NONE"):
+            continue
+        geom = row.geometry
+        if geom is None or geom.is_empty:
+            continue
+        d = pt.distance(geom)
+        # If no explicit key, derive one for uniqueness
+        if not key:
+            key = _normalize.street_name(display)
+        cur = best.get(key)
+        if cur is None or d < cur[1]:
+            best[key] = (display, d)
+
+    # Return list of (display, distance) sorted by distance
+    return sorted(((v[0], v[1]) for v in best.values()), key=lambda kv: kv[1])
+
 
 def get_distance_point_polyline(point, polyline):
     if len(polyline) < 2:

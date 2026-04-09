@@ -97,6 +97,5 @@ BroomBuster/
 │   ├── user_database_options.md   Options for persisting user data
 │   └── web_hosting_options.md     Options for hosting the backend
 ├── Dockerfile
-├── render.yaml
 └── .env.example
 ```

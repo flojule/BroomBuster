@@ -24,12 +24,12 @@ Street segments that are not near the car are still included in the figure and s
 
 ### A — UptimeRobot warm-up ping (recommended, do now)
 
-Ping `GET /health` every 5 minutes using the free UptimeRobot monitor. This keeps the Render container warm for any user who visits within the past 5 minutes.
+Ping `GET /health` every 5 minutes using the free UptimeRobot monitor. This keeps the container warm for any user who visits within the past 5 minutes.
 
 - **Result**: eliminates the cold-start delay for anyone using the app regularly.
 - **Trade-off**: the container will still cold-start if no one (including the monitor) has hit it in 15+ minutes. This is acceptable for a prototype.
 - **Cost**: free (UptimeRobot free plan allows monitors at 5-minute intervals).
-- **Setup**: create a new monitor at uptimerobot.com pointing to `https://<render-url>/health`.
+- **Setup**: create a new monitor at uptimerobot.com pointing to `https://<your-host>/health`.
 
 ---
 

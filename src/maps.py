@@ -2,10 +2,11 @@ import re as _re
 from datetime import date, timedelta
 
 import numpy as np
-import plotly.graph_objects as go
 import shapely
+import shapely.geometry
 
 import analysis as _analysis
+import normalize as _normalize
 
 
 def _clean_desc(s: str) -> str:
@@ -28,7 +29,7 @@ def _safe(val):
 
 
 def _sweeping_color(row, local_now=None):
-    """Return a Plotly color string based on sweeping schedule urgency."""
+    """Return an urgency color string based on sweeping schedule."""
     today    = local_now.date() if local_now else date.today()
     tomorrow = today + timedelta(days=1)
 
@@ -73,68 +74,10 @@ def _geom_lines(geom):
             yield poly.exterior.xy
 
 
-CAR_NAME = "🚗 My Car"
-
-
-def _car_address(myCar):
-    name   = getattr(myCar, "street_name",   None)
-    number = getattr(myCar, "street_number", None)
-    if name:
-        return f"{number or ''} {name}".strip()
-    return f"Lat {myCar.lat:.4f}, Lon {myCar.lon:.4f}"
-
-
-def _car_urgency_color(schedule_even, schedule_odd, car_side, local_now=None):
-    """Return urgency color for the car based on its side's sweeping schedule."""
-    today    = local_now.date() if local_now else date.today()
-    tomorrow = today + timedelta(days=1)
-    entries  = schedule_even if car_side == "even" else schedule_odd
-    today_active    = False
-    tomorrow_active = False
-    for e in entries:
-        if not e or len(e) < 1:
-            continue
-        try:
-            dates = _analysis.parse_sweeping_code(e[0])
-        except Exception:
-            continue
-        if today in dates:
-            time_str = e[2] if len(e) >= 3 else ""
-            if local_now and time_str:
-                _, end_t = _analysis._parse_time_range(time_str)
-                if end_t is None or local_now.time() <= end_t:
-                    today_active = True
-            else:
-                today_active = True
-        if tomorrow in dates:
-            tomorrow_active = True
-    if today_active:
-        return "tomato"
-    if tomorrow_active:
-        return "orange"
-    return "cornflowerblue"
-
-
-# Annotation panel styles keyed by urgency color
-_URGENCY_PANEL = {
-    "tomato":         {"bgcolor": "rgba(255,200,190,0.95)", "bordercolor": "tomato"},
-    "orange":         {"bgcolor": "rgba(255,235,190,0.95)", "bordercolor": "darkorange"},
-    "cornflowerblue": {"bgcolor": "rgba(255,255,255,0.88)", "bordercolor": "#aaa"},
-}
-
-# Hover-label styles keyed by urgency color
-_URGENCY_HOVER = {
-    "tomato":         dict(bgcolor="tomato",  bordercolor="tomato",     font=dict(color="white")),
-    "orange":         dict(bgcolor="orange",  bordercolor="darkorange", font=dict(color="black")),
-    "cornflowerblue": dict(bgcolor="white",   bordercolor="#aaa",       font=dict(color="black")),
-}
-
 # ---------------------------------------------------------------------------
 # Zone colour palette
 # ---------------------------------------------------------------------------
 
-# 20 perceptually distinct named colours.  Urgency is communicated by fill
-# opacity and border vividness; the chosen hue signals zone identity.
 _ZONE_PALETTE = [
     ("Crimson",    220, 50,  60),
     ("Coral",      255, 100, 80),
@@ -158,214 +101,107 @@ _ZONE_PALETTE = [
     ("Rose",       225, 82,  112),
 ]
 
-# (fill_alpha, border_alpha) per urgency level — fills are ~10% to keep map readable
-_URGENCY_ALPHA = {
-    "tomato":         (0.10, 0.75),
-    "orange":         (0.10, 0.60),
-    "cornflowerblue": (0.08, 0.22),
+# Urgency-color RGB values used for border and urgent fill.
+_URGENCY_RGB = {
+    "tomato":         (220, 60,  60),
+    "orange":         (230, 130, 20),
+    "cornflowerblue": (80,  110, 180),
 }
 
-# Border darkening factor per urgency (multiplied with zone's base rgb)
-_URGENCY_BORDER_DARKEN = {
-    "tomato":         0.45,
-    "orange":         0.55,
-    "cornflowerblue": 0.65,
+# Border opacity is always high so urgency reads clearly.
+_URGENCY_BORDER_ALPHA = {
+    "tomato":         0.90,
+    "orange":         0.80,
+    "cornflowerblue": 0.40,
+}
+
+# Fill alpha: urgent zones get higher opacity; non-urgent stay subtle.
+_URGENCY_FILL_ALPHA = {
+    "tomato":         0.55,
+    "orange":         0.40,
+    "cornflowerblue": 0.18,  # palette fill for non-urgent
 }
 
 
 def _zone_fill_color(w: int, s: int, urgency: str):
-    """Return (fill_rgba, border_rgba, color_name) for a zone."""
-    idx = (w * 100 + s) % len(_ZONE_PALETTE)
-    name, r, g, b = _ZONE_PALETTE[idx]
-    fa, ba = _URGENCY_ALPHA[urgency]
-    dk = _URGENCY_BORDER_DARKEN[urgency]
-    br, bg_, bb = int(r * dk), int(g * dk), int(b * dk)
-    fill   = f"rgba({r},{g},{b},{fa:.2f})"
-    border = f"rgba({br},{bg_},{bb},{ba:.2f})"
+    """Return (fill_rgba, border_rgba, color_name) for a polygon zone.
+
+    Border: always urgency color so roads clearly signal sweep day.
+    Fill: urgency color for today/tomorrow; palette color for non-urgent
+          (helps distinguish adjacent zones visually).
+    """
+    ur, ug, ub = _URGENCY_RGB[urgency]
+    ba = _URGENCY_BORDER_ALPHA[urgency]
+    fa = _URGENCY_FILL_ALPHA[urgency]
+
+    border = f"rgba({ur},{ug},{ub},{ba:.2f})"
+
+    if urgency == "cornflowerblue":
+        # Non-urgent: fill with palette colour so zones are distinguishable.
+        idx = (w * 100 + s) % len(_ZONE_PALETTE)
+        name, r, g, b = _ZONE_PALETTE[idx]
+        fill = f"rgba({r},{g},{b},{fa:.2f})"
+    else:
+        # Urgent: fill with the urgency colour itself.
+        name = "Urgent"
+        fill = f"rgba({ur},{ug},{ub},{fa:.2f})"
+
     return fill, border, name
 
 
-def _densify(xs, ys, max_step=0.0003):
-    """
-    Insert intermediate points between every pair of vertices so that hover
-    events fire anywhere along the line, not just at the original vertices.
-    max_step is in degrees (~30 m at 37 N).
-    """
-    xs = np.asarray(xs, dtype=float)
-    ys = np.asarray(ys, dtype=float)
-    dx = np.diff(xs)
-    dy = np.diff(ys)
-    segs = np.maximum(1, (np.hypot(dx, dy) / max_step).astype(int))
+# ---------------------------------------------------------------------------
+# Hover text helpers
+# ---------------------------------------------------------------------------
 
-    out_x = [xs[0]]
-    out_y = [ys[0]]
-    for i, n in enumerate(segs):
-        ts = np.linspace(0, 1, n + 1)[1:]   # skip t=0 (already added)
-        out_x.extend((xs[i] + ts * dx[i]).tolist())
-        out_y.extend((ys[i] + ts * dy[i]).tolist())
-    return out_x, out_y
+def _hover_side(desc, time, label):
+    d = _clean_desc(_safe(desc))
+    t = _normalize.time_display(_safe(time))
+    body = d if (t in ("N/A", "") or t in d) else f"{d} \u2014 {t}"
+    return f"{label}: {body}"
 
 
-def _fmt_schedule(entries, label, highlight=False):
-    """Return a single HTML line: bold label, plain schedule text."""
-    valid = [e for e in entries if e and len(e) >= 3]
-    # Leading indicator keeps both rows aligned: highlighted gets ►, others
-    # get a same-width invisible spacer so text columns line up.
-    prefix     = "&#9658;&nbsp;" if highlight else "&nbsp;&nbsp;&nbsp;"
-    bold_label = f"<b>{prefix}{label}:</b>"
-    if not valid:
-        return f"{bold_label} no sweeping"
-    seen = set()
-    parts = []
-    for entry in valid:
-        key = (entry[1], entry[2])
-        if key not in seen:
-            t = entry[2]
-            body = entry[1] if not t else f"{entry[1]} \u2014 {t}"
-            parts.append(body)
-            seen.add(key)
-    return f"{bold_label} {' / '.join(parts)}"
-
-
-def _build_info_panel(myCar, schedule_even, schedule_odd):
-    """HTML string for the bottom-left annotation overlay."""
-    today   = date.today()
-    addr    = _car_address(myCar)
-    number  = getattr(myCar, "street_number", None)
-    car_side = "even" if (number and number % 2 == 0) else "odd"
-
-    def _sched_parts(entries):
-        valid = [e for e in entries if e and len(e) >= 3]
-        seen, parts = set(), []
-        for entry in valid:
-            key = (entry[1], entry[2])
-            if key not in seen:
-                t    = entry[2]
-                body = entry[1] if not t else f"{entry[1]} \u2014 {t}"
-                parts.append(body)
-                seen.add(key)
-        return parts
-
-    even_parts = _sched_parts(schedule_even)
-    odd_parts  = _sched_parts(schedule_odd)
-
-    header = [
-        f"<b>{CAR_NAME}:</b> {addr}",
-        f"<b>Date:</b> {today.strftime('%A, %B %-d %Y')}",
-        "",
-    ]
-
-    if even_parts and even_parts == odd_parts:
-        sched = [f"&#9658;&nbsp;<b>Street:</b> {' / '.join(even_parts)}"]
-    else:
-        sched = [
-            _fmt_schedule(schedule_even, "Even side", highlight=(car_side == "even")),
-            _fmt_schedule(schedule_odd,  "Odd side",  highlight=(car_side == "odd")),
-        ]
-
-    return "<br>".join(header + sched)
+def _zone_hover(row):
+    # Prefer the human-friendly display name for UI; fall back to stored STREET_NAME
+    name = _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME"))
+    return (
+        f"<b>{name}</b><br>"
+        + _hover_side(row.get("DESC_EVEN"), row.get("TIME_EVEN"), "Sweeping") + "<br>"
+    )
 
 
 # ---------------------------------------------------------------------------
-# Main plotting function
+# Main GeoJSON builder
 # ---------------------------------------------------------------------------
 
-def _build_map_figure(myCar, myCity, schedule_even=None, schedule_odd=None, message=None, local_now=None):
-    """Build and return the Plotly Figure (does not display it)."""
+_color_meta = {
+    "tomato":         ("Sweeping today",    3.0),
+    "orange":         ("Sweeping tomorrow", 3.0),
+    "cornflowerblue": ("No sweeping soon",  3.0),
+}
+
+_POLY_TYPES = (shapely.geometry.Polygon, shapely.geometry.MultiPolygon)
+_PRIORITY   = {"tomato": 2, "orange": 1, "cornflowerblue": 0}
+
+
+def build_map_geojson(myCar, myCity, schedule_even=None, schedule_odd=None, message=None, local_now=None) -> dict:
+    """Return zone data as a GeoJSON FeatureCollection for client-side rendering."""
     schedule_even = schedule_even or []
     schedule_odd  = schedule_odd  or []
 
-    number    = getattr(myCar, "street_number", None)
-    car_side  = "even" if (number and number % 2 == 0) else "odd"
-    car_color = _car_urgency_color(schedule_even, schedule_odd, car_side, local_now=local_now)
-
     myCity_ = myCity.to_crs("EPSG:4326")
 
-    COLORS    = ("tomato", "orange", "cornflowerblue")
-    _PRIORITY = {"tomato": 2, "orange": 1, "cornflowerblue": 0}
-
-    color_meta = {
-        "tomato":         ("Sweeping today",    5.0),
-        "orange":         ("Sweeping tomorrow", 2.5),
-        "cornflowerblue": ("No sweeping soon",  1.5),
-    }
-
-    _POLY_TYPES = (shapely.geometry.Polygon, shapely.geometry.MultiPolygon)
-
-    # Pre-compute urgency color for every row once; reused in all three passes.
+    # ------------------------------------------------------------------
+    # Pre-compute urgency color for every row
+    # ------------------------------------------------------------------
     _row_color: dict = {}
     for _idx, _row in myCity_.iterrows():
         _row_color[_idx] = _sweeping_color(_row, local_now=local_now)
 
-    # Override colors for the car's own street: use the car's specific side only,
-    # so the street color matches what the car card shows.
-    today    = local_now.date() if local_now else date.today()
-    tomorrow = today + timedelta(days=1)
-    _car_norm     = _analysis._norm_name(getattr(myCar, "street_name", "") or "")
-    _car_day_key  = "DAY_EVEN"  if car_side == "even" else "DAY_ODD"
-    _car_time_key = "TIME_EVEN" if car_side == "even" else "TIME_ODD"
-    if _car_norm:
-        for _idx, _row in myCity_.iterrows():
-            rn = _safe(_row.get("STREET_NAME"))
-            if _analysis._norm_name(rn) != _car_norm:
-                continue
-            s = _safe(_row.get(_car_day_key))
-            if s not in ("N/A", "N", "NS", "O", ""):
-                try:
-                    dates = _analysis.parse_sweeping_code(s)
-                    if today in dates:
-                        sweep_done = False
-                        if local_now:
-                            time_str = _safe(_row.get(_car_time_key))
-                            if time_str not in ("N/A", ""):
-                                _, end_t = _analysis._parse_time_range(time_str)
-                                if end_t is not None and local_now.time() > end_t:
-                                    sweep_done = True
-                        if not sweep_done:
-                            _row_color[_idx] = "tomato"; continue
-                    if tomorrow in dates:
-                        _row_color[_idx] = "orange"; continue
-                except Exception:
-                    pass
-            _row_color[_idx] = "cornflowerblue"
+    features = []
 
-    # Transparent hoverlabel — preserves Plotly hover hit detection so plotly_hover
-    # events fire, while the custom HTML tooltip (#custom-hover) handles display.
-    _HOVERLABEL = dict(
-        bgcolor="rgba(0,0,0,0)",
-        bordercolor="rgba(0,0,0,0)",
-        namelength=0,
-        font=dict(
-            family='-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-            size=1, color="rgba(0,0,0,0)",
-        ),
-    )
-
-    def _hover_side(desc, time, label):
-        """Format one side of the hover: omit time if already in the description."""
-        d, t = _clean_desc(_safe(desc)), _safe(time)
-        body = d if (t in ("N/A", "") or t in d) else f"{d} \u2014 {t}"
-        return f"{label}: {body}"
-
-    def _zone_hover(row):
-        name = _safe(row.get("STREET_NAME"))
-        return (
-            f"<b>{name}</b><br>"
-            + _hover_side(row.get("DESC_EVEN"), row.get("TIME_EVEN"), "Sweeping") + "<br>"
-        )
-
-    # -----------------------------------------------------------------------
-    # Polygon zone rendering  (e.g. Chicago ward sections)
-    # Zones are bucketed by (palette_index × urgency) — at most 60 buckets —
-    # so the figure has far fewer traces than one-per-zone.  Interior hover
-    # coverage is provided by a single invisible marker trace per urgency.
-    # -----------------------------------------------------------------------
-    # outline_buckets: (fill_rgba, border_rgba, urgency) -> {lats, lons, texts}
-    outline_buckets: dict = {}
-    # hover_pts: urgency -> {lats, lons, texts, hoverlabel}
-    hover_pts: dict = {}
-    poly_legend_added: set = set()
-
+    # ------------------------------------------------------------------
+    # Polygon zones (e.g. Chicago ward sections)
+    # ------------------------------------------------------------------
     for _, row in myCity_.iterrows():
         geom = row["geometry"]
         if not hasattr(geom, "is_empty") or geom.is_empty:
@@ -380,36 +216,26 @@ def _build_map_figure(myCar, myCity, schedule_even=None, schedule_odd=None, mess
         except (TypeError, ValueError):
             w, s = 0, 0
 
-        fill_color, border_color, _color_name = _zone_fill_color(w, s, color)
+        fill_color, border_color, _ = _zone_fill_color(w, s, color)
         hover = _zone_hover(row)
 
-        okey = (fill_color, border_color, color)
-        if okey not in outline_buckets:
-            outline_buckets[okey] = {"lats": [], "lons": [], "texts": []}
-        ob = outline_buckets[okey]
-        for x, y in _geom_lines(geom):
-            xs, ys = list(x), list(y)
-            ob["lats"].extend(ys + [None])
-            ob["lons"].extend(xs + [None])
-            ob["texts"].extend([hover] * len(xs) + [None])
+        features.append({
+            "type": "Feature",
+            "geometry": shapely.geometry.mapping(geom),
+            "properties": {
+                "render_type":  "polygon",
+                "urgency":      color,
+                "fill_color":   fill_color,
+                "border_color": border_color,
+                "hover_html":   hover,
+            },
+        })
 
-        # Interior representative point for reliable hover anywhere inside
-        rp = geom.representative_point()
-        if color not in hover_pts:
-            hover_pts[color] = {"lats": [], "lons": [], "texts": [],
-                                 "hlabel": _HOVERLABEL}
-        hover_pts[color]["lats"].append(rp.y)
-        hover_pts[color]["lons"].append(rp.x)
-        hover_pts[color]["texts"].append(hover)
-
-    # -----------------------------------------------------------------------
-    # Line street rendering  (Oakland / SF — single-pass, merges hover per key)
-    # SF has one row per blockside (EVEN/ODD), same geometry for both sides of a
-    # block. We accumulate schedule text from ALL rows sharing the same endpoint
-    # key and colour at the highest urgency seen across those rows.
-    # -----------------------------------------------------------------------
-    buckets = {c: {"lats": [], "lons": [], "texts": []} for c in COLORS}
-
+    # ------------------------------------------------------------------
+    # Line street rendering (Oakland / SF)
+    # Deduplicates segments and merges even/odd schedule text.
+    # No densification needed — MapLibre hit-tests along the full geometry.
+    # ------------------------------------------------------------------
     def _seg_key(x, y):
         return frozenset({
             (round(x[0], 5), round(y[0], 5)),
@@ -417,12 +243,12 @@ def _build_map_figure(myCar, myCity, schedule_even=None, schedule_odd=None, mess
         })
 
     def _side_body(desc, time):
-        d, t = _clean_desc(_safe(desc)), _safe(time)
+        d = _clean_desc(_safe(desc))
+        t = _normalize.time_display(_safe(time))
         if d in ("N/A", ""):
             return None
         return d if t in ("N/A", "") or t in d else f"{d} \u2014 {t}"
 
-    # key → {color, pri, dx, dy, name, even: [...], odd: [...]}
     seg_data: dict = {}
 
     for _, row in myCity_.iterrows():
@@ -435,40 +261,29 @@ def _build_map_figure(myCar, myCity, schedule_even=None, schedule_odd=None, mess
         pri   = _PRIORITY[color]
         be    = _side_body(row.get("DESC_EVEN"), row.get("TIME_EVEN"))
         bo    = _side_body(row.get("DESC_ODD"),  row.get("TIME_ODD"))
-        name  = _safe(row.get("STREET_NAME"))
+        # Use display name for UI rendering; fallback to stored STREET_NAME
+        name  = _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME"))
 
         for x, y in _geom_lines(geom):
             x, y = list(x), list(y)
             k = _seg_key(x, y)
             if k not in seg_data:
-                dx, dy = _densify(x, y)
                 seg_data[k] = {
                     "color": color, "pri": pri,
-                    "dx": dx, "dy": dy, "name": name,
+                    "x": x, "y": y, "name": name,
                     "even": [be] if be else [],
                     "odd":  [bo] if bo else [],
                 }
             else:
                 sd = seg_data[k]
                 if pri > sd["pri"]:
-                    sd["pri"] = pri
-                    sd["color"] = color
-                    dx, dy = _densify(x, y)
-                    sd["dx"] = dx
-                    sd["dy"] = dy
-                    # Higher-priority row takes precedence; keep any already-set side
-                    if be:
-                        sd["even"] = [be]
-                    if bo:
-                        sd["odd"] = [bo]
+                    sd["pri"] = pri; sd["color"] = color
+                    sd["x"] = x;    sd["y"] = y
+                    if be: sd["even"] = [be]
+                    if bo: sd["odd"]  = [bo]
                 else:
-                    # Same/lower priority: only fill a side that hasn't been set yet.
-                    # This merges even+odd rows (same geometry, different sides) without
-                    # stacking multiple address-range schedules for the same side.
-                    if be and not sd["even"]:
-                        sd["even"] = [be]
-                    if bo and not sd["odd"]:
-                        sd["odd"] = [bo]
+                    if be and not sd["even"]: sd["even"] = [be]
+                    if bo and not sd["odd"]:  sd["odd"]  = [bo]
 
     for sd in seg_data.values():
         evens = sd["even"]
@@ -483,83 +298,63 @@ def _build_map_figure(myCar, myCity, schedule_even=None, schedule_odd=None, mess
             if evens: parts.append("Even: " + " / ".join(evens))
             if odds:  parts.append("Odd: "  + " / ".join(odds))
             sched_html = "<br>".join(parts)
-        hover = f"<b>{sd['name']}</b><br>{sched_html}"
-        dx, dy = sd["dx"], sd["dy"]
-        buckets[color]["lats"].extend(dy + [None])
-        buckets[color]["lons"].extend(dx + [None])
-        buckets[color]["texts"].extend([hover] * len(dx) + [None])
 
-    # -----------------------------------------------------------------------
-    # Build figure — polygons first (behind) then lines then markers
-    # -----------------------------------------------------------------------
-    fig = go.Figure()
+        hover      = f"<b>{sd['name']}</b><br>{sched_html}"
+        line_width = _color_meta[color][1]
 
-    # -- Polygon zone fills (batched by palette×urgency — ~60 traces max) --
-    for (fill_color, border_color, urgency), ob in outline_buckets.items():
-        label, _ = color_meta[urgency]
-        show_legend = urgency not in poly_legend_added
-        if show_legend:
-            poly_legend_added.add(urgency)
-        fig.add_trace(go.Scattermapbox(
-            lat=ob["lats"], lon=ob["lons"],
-            mode="lines",
-            fill="toself",
-            fillcolor=fill_color,
-            line=dict(width=1.5, color=border_color),
-            hoverinfo="text", text=ob["texts"],
-            hoverlabel=_HOVERLABEL,
-            name=label,
-            showlegend=show_legend,
-        ))
+        # GeoJSON coords: [[lon, lat], ...]
+        coords = [[float(lon), float(lat)] for lon, lat in zip(sd["x"], sd["y"])]
 
-    # -- Invisible interior markers: one trace per urgency for zone hover --
-    for urgency, hp in hover_pts.items():
-        fig.add_trace(go.Scattermapbox(
-            lat=hp["lats"], lon=hp["lons"],
-            mode="markers",
-            marker=dict(size=30, opacity=0),
-            hoverinfo="text", text=hp["texts"],
-            hoverlabel=hp["hlabel"],
-            showlegend=False,
-        ))
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "LineString",
+                "coordinates": coords,
+            },
+            "properties": {
+                "render_type": "line",
+                "urgency":     color,
+                "line_color":  color,
+                "line_width":  line_width,
+                "hover_html":  hover,
+            },
+        })
 
-    # -- Line street traces --
-    for color in COLORS:
-        b = buckets[color]
-        if not b["lats"]:
-            continue
-        label, width = color_meta[color]
-        fig.add_trace(go.Scattermapbox(
-            lat=b["lats"], lon=b["lons"],
-            mode="lines",
-            line=dict(width=width, color=color),
-            hoverinfo="text", text=b["texts"],
-            hoverlabel=_HOVERLABEL,
-            name=label,
-            showlegend=True,
-        ))
+    return {"type": "FeatureCollection", "features": features}
 
-    fig.update_layout(
-        mapbox=dict(
-            style="open-street-map",
-            center=dict(lat=myCar.lat, lon=myCar.lon),
-            zoom=15,
-        ),
-        margin={"r": 0, "t": 0, "l": 0, "b": 0},
-        showlegend=False,
-    )
 
-    return fig
-
+# ---------------------------------------------------------------------------
+# Legacy offline preview (CLI only — not used by the API)
+# ---------------------------------------------------------------------------
 
 def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None, local_now=None):
-    """Render the map and open it in a browser tab."""
-    fig = _build_map_figure(myCar, myCity, schedule_even, schedule_odd, message, local_now=local_now)
+    """Render the map in a browser tab (offline/CLI use only)."""
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        print("plotly not installed; cannot render offline preview.")
+        return
+
+    geojson = build_map_geojson(myCar, myCity, schedule_even, schedule_odd, message, local_now)
+    lats, lons = [], []
+    for f in geojson["features"]:
+        props = f["properties"]
+        geom  = f["geometry"]
+        if props["render_type"] == "line":
+            coords = geom["coordinates"]
+            lats.extend([c[1] for c in coords] + [None])
+            lons.extend([c[0] for c in coords] + [None])
+
+    fig = go.Figure(go.Scattermapbox(lat=lats, lon=lons, mode="lines"))
+    fig.update_layout(
+        mapbox=dict(style="open-street-map", center=dict(lat=myCar.lat, lon=myCar.lon), zoom=15),
+        margin={"r": 0, "t": 0, "l": 0, "b": 0},
+    )
     fig.show(config=dict(scrollZoom=True, displayModeBar=True, displaylogo=False))
 
 
-def plot_map_dict(myCar, myCity, schedule_even=None, schedule_odd=None, message=None, local_now=None) -> dict:
-    """Return the Plotly figure as a JSON-serialisable dict (for API responses)."""
-    fig = _build_map_figure(myCar, myCity, schedule_even, schedule_odd, message, local_now=local_now)
-    return fig.to_dict()
-
+# Keep old name as alias so any external callers don't break immediately.
+def plot_map_dict(*args, **kwargs):
+    raise NotImplementedError(
+        "plot_map_dict() is removed. Use build_map_geojson() instead."
+    )

@@ -12,7 +12,8 @@
   <meta name="theme-color" content="#2563eb">
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.css">
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.js"></script>
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -68,10 +69,7 @@
       overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch;
     }
     .app-title { font-size: .88rem; font-weight: 700; flex-shrink: 0; }
-    /* Vertical separator line between topbar groups */
     .tb-sep { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; align-self: center; margin: 0 3px; }
-    /* Unified height for all topbar interactive controls.
-       display/width override the global button { block; 100% } rule. */
     .tb-select, .tb-btn {
       display: inline-flex; align-items: center; width: auto;
       height: 26px; box-sizing: border-box; padding: 0 8px; margin: 0;
@@ -94,6 +92,10 @@
     /* ── Map container ── */
     #map-container { flex: 1; min-height: 0; position: relative; }
     #map { width: 100%; height: 100%; }
+
+    /* ── MapLibre attribution ── */
+    .maplibregl-ctrl-bottom-right,
+    .maplibregl-ctrl-bottom-left { display: none !important; }
 
     /* ── Place banner (tap-to-place mode) ── */
     #place-banner {
@@ -147,7 +149,7 @@
     }
     .car-entry.selected {
       border: 2px solid var(--car-color);
-      padding: 9px 11px; /* compensate for extra border px */
+      padding: 9px 11px;
     }
     .ce-header { display: flex; align-items: center; gap: 6px; }
     .ce-dot {
@@ -196,7 +198,7 @@
     }
     #btn-gps-add { width: auto; margin: 0; padding: 4px 10px; font-size: .76rem; font-weight: 600; border-radius: 6px; }
 
-    /* ── Inline name panel — overlays ctx-menu at the same position/size ── */
+    /* ── Inline name panel ── */
     #name-panel {
       position: fixed; z-index: 200; display: none;
       background: var(--card); border: 1px solid var(--border);
@@ -218,13 +220,13 @@
       box-shadow: 0 3px 10px rgba(0,0,0,.12);
     }
 
-    /* ── Hide Mapbox/Plotly attribution controls (lower-right) ── */
-    .mapboxgl-ctrl-bottom-right, .mapboxgl-ctrl-bottom-left { display: none !important; }
-    .js-plotly-plot .plotly a.modebar-btn { display: none !important; }
-    /* Hide Plotly's native hover label/arrow. pointer-events:none lets Mapbox GL
-       canvas receive mousemove/click directly, which is how scattermapbox fires
-       plotly_hover and plotly_click. Car selection is guarded by _plotlyClickHandled. */
-    .hoverlayer { opacity: 0 !important; pointer-events: none !important; }
+    /* ── Car marker (MapLibre HTML element) ── */
+    .car-marker {
+      border-radius: 50%; border: 3px solid white;
+      box-shadow: 0 2px 8px rgba(0,0,0,.45);
+      cursor: pointer; transition: width .12s, height .12s, border-color .12s;
+    }
+    .car-marker.selected { border-color: var(--marker-color, white); }
 
     /* ── Spinner ── */
     .spinner { width: 11px; height: 11px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; vertical-align: middle; margin-right: 3px; }
@@ -257,9 +259,9 @@
     <select id="region-select" class="tb-select"></select>
     <span class="tb-sep"></span>
     <select id="sel-map-style" class="tb-select">
-      <option value="open-street-map">🗺 Standard</option>
-      <option value="carto-positron" selected>☀️ Light</option>
-      <option value="carto-darkmatter">🌙 Dark</option>
+      <option value="https://tiles.openfreemap.org/styles/bright">🗺 Standard</option>
+      <option value="https://tiles.openfreemap.org/styles/positron" selected>☀️ Light</option>
+      <option value="https://tiles.openfreemap.org/styles/dark-matter">🌙 Dark</option>
     </select>
     <span id="status-text" class="idle">—</span>
     <span id="locate-info"></span>
@@ -313,68 +315,9 @@
 const SUPABASE_URL  = window.SUPABASE_URL  || 'https://bebepoowtumqmzwlydeu.supabase.co';
 const SUPABASE_ANON = window.SUPABASE_ANON || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJlYmVwb293dHVtcW16d2x5ZGV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MDg2ODEsImV4cCI6MjA4OTE4NDY4MX0.BHZ2EiFN1-GiM7QEsxnqMB8oVI1Jzl1LH3D-y230nk4';
 
-const DEFAULT_CENTER = { lat: 37.820, lon: -122.295, zoom: 11 };
+const DEFAULT_CENTER = { lat: 38, lon: -96, zoom: 4 };  // US overview — shown only if no car/IP data
 const CAR_COLORS = ['#3b82f6','#10b981','#a855f7','#06b6d4','#ec4899','#84cc16','#6366f1','#22d3ee'];
 function carColor(idx) { return CAR_COLORS[idx % CAR_COLORS.length]; }
-
-// ── Car selection helpers ──────────────────────────────────────────────────────
-function clearCarSelection() {
-  _selectedCarId = null;
-  unhighlightCarOnMap();
-  for (const e of carsPanel.querySelectorAll('.car-entry')) e.classList.remove('selected');
-}
-
-function isCarInView(car) {
-  try { return getMapboxMap()?.getBounds()?.contains([car.lon, car.lat]) ?? false; }
-  catch (_) { return false; }
-}
-
-function setSelectedCar(carId) {
-  _selectedCarId = carId;
-  for (const e of carsPanel.querySelectorAll('.car-entry')) {
-    e.classList.toggle('selected', e.dataset.id === carId);
-  }
-  const car = cars.find(c => c.id === carId);
-  if (car && !isCarInView(car)) {
-    try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat: car.lat, lon: car.lon }, 'mapbox.zoom': 16, 'mapbox.bearing': 0 }); } catch (_) {}
-  }
-  highlightCarOnMap();
-}
-
-// Highlight selected car ring with a larger marker (one-shot, no RAF loop).
-function highlightCarOnMap() {
-  if (!_selectedCarId || !_baseFigure) return;
-  const carIdx = cars.findIndex(c => c.id === _selectedCarId);
-  if (carIdx === -1) return;
-  try { Plotly.restyle(mapDiv, { 'marker.size': [22] }, [_baseFigure.data.length + carIdx]); } catch (_) {}
-}
-
-function unhighlightCarOnMap() {
-  if (!_baseFigure || !cars.length) return;
-  const n = _baseFigure.data.length;
-  try { Plotly.restyle(mapDiv, { 'marker.size': 14 }, cars.map((_, i) => n + i)); } catch (_) {}
-}
-
-function updateGpsPinPopup() {
-  const popup = document.getElementById('gps-pin-popup');
-  if (!_gpsLocPin) { popup.style.display = 'none'; return; }
-  const mbMap = getMapboxMap();
-  if (!mbMap) { popup.style.display = 'none'; return; }
-  const px = mbMap.project([_gpsLocPin.lon, _gpsLocPin.lat]);
-  popup.style.left = Math.round(px.x) + 'px';
-  popup.style.top  = Math.round(px.y) + 'px';
-  popup.style.display = 'block';
-}
-
-document.getElementById('btn-gps-add').addEventListener('click', () => {
-  if (!_gpsLocPin) return;
-  pendingLat = _gpsLocPin.lat; pendingLon = _gpsLocPin.lon;
-  // Drop a temp pin at GPS loc and open the name panel near the popup
-  addTempPin(pendingLat, pendingLon);
-  const popup = document.getElementById('gps-pin-popup');
-  showNamePanel(popup.getBoundingClientRect());
-});
-
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
@@ -387,19 +330,30 @@ let regions        = {};
 let placingCar     = false;
 let placingEditId  = null;
 let pendingLat     = null, pendingLon = null;
-let carSchedules   = {};    // carId → /check response
-let _baseFigure    = null;  // last /check figure; used for react updates
-let _tempPin       = null;  // {lat,lon} while naming a new car
-let _ctxScreenX    = 0, _ctxScreenY = 0;
-let _mbPlaceHandler = null;
-let _selectedCarId = null;
-let _locSource = null, _locLat = null, _locLon = null, _locRegion = null, _locCity = null;
-let _mbBgClickHandler = null;
-let _mbMoveStartHandler = null, _mbMoveEndHandler = null, _mbMoveHandler = null;
-let _gpsLocPin = null;  // temporary "you are here" pin from locate button
+let carSchedules   = {};
+let _currentGeojson = null;   // last zone GeoJSON from /check
+let _tempPin        = null;   // {lat,lon} while naming a new car
+let _ctxScreenX     = 0, _ctxScreenY = 0;
+let _selectedCarId  = null;
+let _locSource = null, _locLat = null, _locLon = null, _locCity = null;
+let _gpsLocPin = null;
 let _gpsLocPinTimer = null;
-let _plotlyClickHandled = false;  // guards against mbMap bg-click clearing a just-set selection
-let _hoverSuppressed   = false;  // suppress map hover tooltip while cursor is over the cars panel
+let _hoverSuppressed = false;
+let _renderedRegion  = null;
+let _settingRegion   = false;  // true while setNearestRegion() is updating the select
+
+// ── Map (MapLibre) ────────────────────────────────────────────────────────────
+let map = null;
+const _carMarkers  = new Map();  // carId → maplibregl.Marker
+let _gpsMarker     = null;
+let _tempPinMarker = null;
+
+const ZONES_SOURCE = 'sweeping-zones';
+const ZONE_LAYERS  = ['zones-fill', 'zones-outline', 'zones-line'];
+const HOVER_LAYERS = ['zones-fill', 'zones-line'];
+
+let _mapStyle = 'https://tiles.openfreemap.org/styles/positron';
+function getMapboxStyle() { return _mapStyle; }
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
 const authScreen     = document.getElementById('auth-screen');
@@ -422,6 +376,7 @@ const carsPanel      = document.getElementById('cars-panel');
 const namePanel      = document.getElementById('name-panel');
 const namePanelInput = document.getElementById('name-panel-input');
 const btnNpSave      = document.getElementById('btn-np-save');
+const customHoverEl  = document.getElementById('custom-hover');
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 sb.auth.getSession().then(({ data }) => {
@@ -443,24 +398,39 @@ function showAuth() {
 async function initApp() {
   authScreen.style.display = 'none';
   appScreen.style.display  = 'flex';
-  renderDefaultMap();
-  // Load cities, prefs, and IP location all in parallel for faster startup.
-  const [,,ipLoc] = await Promise.all([loadCities(), loadPrefs(), getIPLocation()]);
+  // Wait one animation frame so the browser can lay out #app-screen
+  // before MapLibre reads the container dimensions.
+  await new Promise(r => requestAnimationFrame(r));
+
+  // Load cities and saved cars BEFORE creating the map so we can open
+  // directly at the right location instead of defaulting to Bay Area.
+  await Promise.all([loadCities(), loadPrefs()]);
+
+  // Pick initial map center from saved cars, falling back to US overview.
+  const initCenter = cars.length > 0
+    ? { lat: cars[0].lat, lon: cars[0].lon, zoom: 15 }
+    : DEFAULT_CENTER;
+  initMap(initCenter);
+
+  // Fetch IP location in parallel with the first car check.
+  const ipLocPromise = getIPLocation();
+
   if (cars.length > 0) {
     activeCarId = cars[0].id;
     setNearestRegion(cars[0].lat, cars[0].lon);
-    // Re-center immediately, then load zone overlays in the background.
-    try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat: cars[0].lat, lon: cars[0].lon }, 'mapbox.zoom': 16, 'mapbox.bearing': 0 }); } catch(_) {}
     await checkCarWithRender(cars[0]);
     for (const car of cars.slice(1)) checkCarSilently(car);
-  } else if (ipLoc) {
-    setNearestRegion(ipLoc.lat, ipLoc.lon);
-    setLocationKnown('ip', null, null, ipLoc.city);
-    try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat: ipLoc.lat, lon: ipLoc.lon }, 'mapbox.zoom': 13, 'mapbox.bearing': 0 }); } catch(_) {}
-    setStatus('idle', 'Loading map…');
-    loadAreaMap(ipLoc.lat, ipLoc.lon, 13); // async — overlays load in background
   } else {
-    setStatus('idle', 'Select a region or add a car to load the map.');
+    const ipLoc = await ipLocPromise;
+    if (ipLoc) {
+      setNearestRegion(ipLoc.lat, ipLoc.lon);
+      setLocationKnown('ip', null, null, ipLoc.city);
+      map.jumpTo({ center: [ipLoc.lon, ipLoc.lat], zoom: 13 });
+      setStatus('idle', 'Loading map…');
+      loadAreaMap(ipLoc.lat, ipLoc.lon, 13);
+    } else {
+      setStatus('idle', 'Select a region or add a car to load the map.');
+    }
   }
 }
 
@@ -495,25 +465,448 @@ btnSignup.addEventListener('click', signup);
 [emailEl, passwordEl].forEach(el => el.addEventListener('keydown', e => { if (e.key === 'Enter') login(); }));
 btnLogout.addEventListener('click', () => sb.auth.signOut());
 
-// ── Map helpers ───────────────────────────────────────────────────────────────
-function getMapboxMap() {
-  try { return mapDiv._fullLayout.mapbox._subplot.map; }
-  catch (_) { return null; }
+// ── Map init ──────────────────────────────────────────────────────────────────
+function initMap(center) {
+  const c = center || DEFAULT_CENTER;
+  map = new maplibregl.Map({
+    container: 'map',
+    style: _mapStyle,
+    center: [c.lon, c.lat],
+    zoom: c.zoom,
+    attributionControl: false,
+  });
+  map.dragRotate.disable();
+  map.touchZoomRotate.disableRotation();
+  map.on('load', () => { map.resize(); attachMapListeners(); });
+  map.on('error', (e) => console.error('[MapLibre]', e.error));
 }
 
-function defaultCarName() {
-  const used = new Set(cars.map(c => c.name));
-  if (!used.has('Car')) return 'Car';
-  let i = 2;
-  while (used.has(`Car ${i}`)) i++;
-  return `Car ${i}`;
+let _mapListenersAttached = false;
+
+function attachMapListeners() {
+  // Event listeners live on the map instance and survive style changes, so only
+  // attach once. Calling setStyle() does NOT remove them.
+  if (_mapListenersAttached) return;
+  _mapListenersAttached = true;
+
+  // Hover tooltip
+  map.on('mousemove', (e) => {
+    if (_hoverSuppressed) return;
+    const features = map.queryRenderedFeatures(e.point, { layers: HOVER_LAYERS.filter(l => !!map.getLayer(l)) });
+    if (!features.length) { customHoverEl.style.display = 'none'; return; }
+    const html = features[0].properties?.hover_html;
+    if (!html) { customHoverEl.style.display = 'none'; return; }
+    customHoverEl.innerHTML = html;
+    const x = Math.min(e.originalEvent.clientX + 14, window.innerWidth  - 250);
+    const y = Math.max(e.originalEvent.clientY - 10, 10);
+    customHoverEl.style.left = x + 'px';
+    customHoverEl.style.top  = y + 'px';
+    customHoverEl.style.display = 'block';
+  });
+
+  map.getCanvas().addEventListener('mouseleave', () => { customHoverEl.style.display = 'none'; });
+  map.on('movestart', () => { customHoverEl.style.display = 'none'; });
+
+  // Background click → deselect car (only when not on a zone and not placing)
+  map.on('click', (e) => {
+    if (placingCar) {
+      commitPlacement(e.lngLat.lat, e.lngLat.lng);
+      return;
+    }
+    const features = map.queryRenderedFeatures(e.point, { layers: HOVER_LAYERS.filter(l => !!map.getLayer(l)) });
+    if (!features.length) clearCarSelection();
+  });
+
+  // GPS popup position update on move
+  map.on('move', updateGpsPinPopup);
+  map.on('moveend', updateGpsPinPopup);
+
+  // Incremental viewport fetch: debounced to avoid flooding the server.
+  // Implementation: tile-based requests at a fixed tile zoom, with a
+  // client-side per-tile LRU cache and a zoom threshold so we only fetch
+  // street-level tiles when sufficiently zoomed in.
+  let _viewportFetchTimer = null;
+  const TILE_Z = 13;         // tile zoom used for requests
+  const TILE_CACHE_MAX = 256; // max cached tile entries
+  const TILE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+  const tileCache = new Map(); // tileKey -> { geojson, ts }
+
+  function _clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+  function lon2tileX(lon, z) {
+    const n = Math.pow(2, z);
+    return Math.floor((lon + 180) / 360 * n);
+  }
+
+  function lat2tileY(lat, z) {
+    const rad = lat * Math.PI / 180;
+    const n = Math.pow(2, z);
+    return Math.floor((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2 * n);
+  }
+
+  function tilesForBounds(b, z) {
+    const minLat = b.getSouth(), minLon = b.getWest(), maxLat = b.getNorth(), maxLon = b.getEast();
+    const n = Math.pow(2, z) - 1;
+    const x0 = _clamp(lon2tileX(minLon, z), 0, n);
+    const x1 = _clamp(lon2tileX(maxLon, z), 0, n);
+    const y0 = _clamp(lat2tileY(maxLat, z), 0, n);
+    const y1 = _clamp(lat2tileY(minLat, z), 0, n);
+    const out = [];
+    for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) {
+      for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) {
+        out.push(`${z}/${x}/${y}`);
+      }
+    }
+    return out;
+  }
+
+  function mergeGeojsons(list) {
+    if (!list || !list.length) return null;
+    const seen = new Set();
+    const features = [];
+    for (const g of list) {
+      if (!g || !g.features) continue;
+      for (const f of g.features) {
+        // Deduplicate by geometry JSON to avoid repeated features across tiles
+        const key = JSON.stringify(f.geometry || {});
+        if (seen.has(key)) continue;
+        seen.add(key);
+        features.push(f);
+      }
+    }
+    return { type: 'FeatureCollection', features };
+  }
+
+  async function _fetchTilesAndRender(tiles) {
+    // Build cached list and missing tiles
+    const now = Date.now();
+    const cached = [];
+    const missing = [];
+    for (const t of tiles) {
+      const e = tileCache.get(t);
+      if (e && (now - e.ts) < TILE_TTL_MS) cached.push(e.geojson);
+      else missing.push(t);
+    }
+
+    if (missing.length === 0) {
+      const merged = mergeGeojsons(cached);
+      renderZones(merged);
+      return;
+    }
+
+    try {
+      const res = await apiFetch('/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: (map.getCenter().lat), lon: (map.getCenter().lng), region: regionSelect.value || undefined, tiles: missing }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const mergedNew = data.geojson || null;
+      const newCount = mergedNew && Array.isArray(mergedNew.features) ? mergedNew.features.length : 0;
+
+      // Store returned merged payload under each requested tile key.
+      // Use an empty FeatureCollection placeholder for out-of-bbox tiles so
+      // the cache entry exists (and prevents re-fetching) without stomping data.
+      const cacheEntry = newCount > 0 ? mergedNew : { type: 'FeatureCollection', features: [] };
+      for (const t of missing) {
+        tileCache.set(t, { geojson: cacheEntry, ts: Date.now() });
+        // Evict oldest when over limit
+        if (tileCache.size > TILE_CACHE_MAX) {
+          const k = tileCache.keys().next().value;
+          tileCache.delete(k);
+        }
+      }
+
+      // Compose final merged from cached + newly fetched (skip empty new result)
+      const all = cached.slice();
+      if (newCount > 0) all.push(mergedNew);
+      const merged = mergeGeojsons(all);
+
+      // Never overwrite non-empty rendered zones with an empty result.
+      const currentCount = _currentGeojson && Array.isArray(_currentGeojson.features)
+        ? _currentGeojson.features.length : 0;
+      if (merged.features.length === 0 && currentCount > 0) return;
+
+      renderZones(merged);
+
+      // Prefetch adjacent tiles (one-ring) after a short delay
+      setTimeout(() => {
+        const neighbors = new Set();
+        for (const t of missing) {
+          const parts = t.split('/');
+          if (parts.length !== 3) continue;
+          const z = parseInt(parts[0], 10), x = parseInt(parts[1], 10), y = parseInt(parts[2], 10);
+          for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+              if (dx === 0 && dy === 0) continue;
+              const nx = x + dx; const ny = y + dy;
+              if (nx < 0 || ny < 0) continue;
+              neighbors.add(`${z}/${nx}/${ny}`);
+            }
+          }
+        }
+        const toFetch = [];
+        const now2 = Date.now();
+        for (const n of neighbors) {
+          const e = tileCache.get(n);
+          if (!e || (now2 - e.ts) >= TILE_TTL_MS) toFetch.push(n);
+        }
+        if (toFetch.length) {
+          // Fire-and-forget prefetch; don't block rendering
+          _fetchTilesAndRender(toFetch);
+        }
+      }, 500);
+    } catch (_) {}
+  }
+
+  map.on('moveend', () => {
+    if (_viewportFetchTimer) clearTimeout(_viewportFetchTimer);
+    _viewportFetchTimer = setTimeout(() => {
+      if (!_renderedRegion) return;
+      const bounds = map.getBounds();
+      const tiles = tilesForBounds(bounds, TILE_Z);
+      if (!tiles.length) return;
+      _fetchTilesAndRender(tiles);
+    }, 350);
+  });
+}
+
+// ── Zone layer management ─────────────────────────────────────────────────────
+function removeZoneLayers() {
+  for (const id of ZONE_LAYERS) {
+    if (map.getLayer(id)) map.removeLayer(id);
+  }
+  if (map.getSource(ZONES_SOURCE)) map.removeSource(ZONES_SOURCE);
+}
+
+function addZoneLayers(geojson) {
+  if (!geojson) return;
+  // If source already exists, update it in-place to avoid removing layers
+  // which causes a visual flicker. Otherwise create source and layers.
+  if (map.getSource && map.getSource(ZONES_SOURCE)) {
+    try {
+      map.getSource(ZONES_SOURCE).setData(geojson);
+      return;
+    } catch (e) {
+      // Fall through to recreate source/layers if setData fails
+      try { removeZoneLayers(); } catch (_) {}
+    }
+  }
+
+  map.addSource(ZONES_SOURCE, { type: 'geojson', data: geojson });
+
+  // Polygon fills (Chicago ward zones)
+  map.addLayer({
+    id: 'zones-fill', type: 'fill', source: ZONES_SOURCE,
+    filter: ['==', ['get', 'render_type'], 'polygon'],
+    paint: { 'fill-color': ['get', 'fill_color'] },
+  });
+
+  // Polygon outlines
+  map.addLayer({
+    id: 'zones-outline', type: 'line', source: ZONES_SOURCE,
+    filter: ['==', ['get', 'render_type'], 'polygon'],
+    paint: { 'line-color': ['get', 'border_color'], 'line-width': 1.5 },
+  });
+
+  // Street lines (Oakland / SF)
+  map.addLayer({
+    id: 'zones-line', type: 'line', source: ZONES_SOURCE,
+    filter: ['==', ['get', 'render_type'], 'line'],
+    layout: {
+      'line-cap': 'round',
+      'line-join': 'round',
+    },
+    paint: {
+      'line-color': ['get', 'line_color'],
+      'line-width': ['get', 'line_width'],
+    },
+  });
+}
+
+function renderZones(geojson) {
+  _currentGeojson = geojson || null;
+  if (!map) return;
+  const apply = () => {
+    if (geojson) addZoneLayers(geojson);
+    else removeZoneLayers();
+  };
+  if (map.isStyleLoaded()) {
+    apply();
+  } else {
+    map.once('style.load', apply);
+  }
+}
+
+// ── Car markers (MapLibre HTML markers) ──────────────────────────────────────
+function updateCarMarkers() {
+  // Remove markers for cars that no longer exist
+  for (const [id, marker] of _carMarkers) {
+    if (!cars.find(c => c.id === id)) { marker.remove(); _carMarkers.delete(id); }
+  }
+
+  cars.forEach((car, i) => {
+    const color      = carColor(i);
+    const isSelected = car.id === _selectedCarId;
+    const size       = isSelected ? 22 : 16;
+
+    if (_carMarkers.has(car.id)) {
+      const marker = _carMarkers.get(car.id);
+      marker.setLngLat([car.lon, car.lat]);
+      const el = marker.getElement();
+      el.style.width  = size + 'px';
+      el.style.height = size + 'px';
+      el.style.borderColor = isSelected ? color : 'white';
+    } else {
+      const el = document.createElement('div');
+      el.className = 'car-marker' + (isSelected ? ' selected' : '');
+      el.style.cssText = `width:${size}px;height:${size}px;background:${color};--marker-color:${color};`;
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setSelectedCar(car.id);
+        const entry = carsPanel.querySelector(`.car-entry[data-id="${car.id}"]`);
+        if (entry) entry.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([car.lon, car.lat])
+        .addTo(map);
+      _carMarkers.set(car.id, marker);
+    }
+  });
+
+  // Temp pin (new car placement)
+  if (_tempPin) {
+    if (!_tempPinMarker) {
+      const el = document.createElement('div');
+      el.style.cssText = 'width:16px;height:16px;border-radius:50%;background:#64748b;border:3px solid #111;box-shadow:0 2px 6px rgba(0,0,0,.4);';
+      _tempPinMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([_tempPin.lon, _tempPin.lat]).addTo(map);
+    } else {
+      _tempPinMarker.setLngLat([_tempPin.lon, _tempPin.lat]);
+    }
+  } else if (_tempPinMarker) {
+    _tempPinMarker.remove(); _tempPinMarker = null;
+  }
+
+  // GPS "you are here" pin
+  if (_gpsLocPin) {
+    if (!_gpsMarker) {
+      const el = document.createElement('div');
+      el.style.cssText = 'width:14px;height:14px;border-radius:50%;background:#2563eb;border:3px solid white;box-shadow:0 0 0 6px rgba(37,99,235,.2),0 2px 8px rgba(0,0,0,.4);';
+      _gpsMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([_gpsLocPin.lon, _gpsLocPin.lat]).addTo(map);
+    } else {
+      _gpsMarker.setLngLat([_gpsLocPin.lon, _gpsLocPin.lat]);
+    }
+  } else if (_gpsMarker) {
+    _gpsMarker.remove(); _gpsMarker = null;
+  }
+
+  renderCarsPanel();
+}
+
+// ── Car selection ─────────────────────────────────────────────────────────────
+function clearCarSelection() {
+  _selectedCarId = null;
+  for (const e of carsPanel.querySelectorAll('.car-entry')) e.classList.remove('selected');
+  updateCarMarkers();
+}
+
+function isCarInView(car) {
+  try { return map?.getBounds()?.contains([car.lon, car.lat]) ?? false; }
+  catch (_) { return false; }
+}
+
+function setSelectedCar(carId) {
+  _selectedCarId = carId;
+  for (const e of carsPanel.querySelectorAll('.car-entry')) {
+    e.classList.toggle('selected', e.dataset.id === carId);
+  }
+  const car = cars.find(c => c.id === carId);
+  if (car && !isCarInView(car)) map.jumpTo({ center: [car.lon, car.lat], zoom: 16 });
+  updateCarMarkers();
+}
+
+// ── GPS pin popup ─────────────────────────────────────────────────────────────
+function updateGpsPinPopup() {
+  const popup = document.getElementById('gps-pin-popup');
+  if (!_gpsLocPin || !map) { popup.style.display = 'none'; return; }
+  const px   = map.project([_gpsLocPin.lon, _gpsLocPin.lat]);
+  const rect = mapDiv.getBoundingClientRect();
+  popup.style.left = Math.round(rect.left + px.x) + 'px';
+  popup.style.top  = Math.round(rect.top  + px.y) + 'px';
+  popup.style.display = 'block';
+}
+
+document.getElementById('btn-gps-add').addEventListener('click', () => {
+  if (!_gpsLocPin) return;
+  pendingLat = _gpsLocPin.lat; pendingLon = _gpsLocPin.lon;
+  addTempPin(pendingLat, pendingLon);
+  const popup = document.getElementById('gps-pin-popup');
+  showNamePanel(popup.getBoundingClientRect());
+});
+
+// ── Map contextmenu (right-click to add car) ──────────────────────────────────
+mapDiv.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  if (!map) return;
+  const rect = mapDiv.getBoundingClientRect();
+  const ll   = map.unproject([e.clientX - rect.left, e.clientY - rect.top]);
+  pendingLat = ll.lat; pendingLon = ll.lng;
+  showCtxMenu(e.clientX, e.clientY);
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#ctx-menu')) hideCtxMenu();
+  if (namePanel.style.display !== 'none'
+      && !e.target.closest('#name-panel')
+      && !e.target.closest('#ctx-menu')
+      && !e.target.closest('#gps-pin-popup')) {
+    hideNamePanel();
+  }
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    hideCtxMenu();
+    if (namePanel.style.display !== 'none') hideNamePanel();
+  }
+});
+
+carsPanel.addEventListener('mouseenter', () => { _hoverSuppressed = true;  customHoverEl.style.display = 'none'; });
+carsPanel.addEventListener('mouseleave', () => { _hoverSuppressed = false; });
+
+// ── Map style picker ──────────────────────────────────────────────────────────
+document.getElementById('sel-map-style').addEventListener('change', function () {
+  _mapStyle = this.value;
+  if (!map) return;
+  map.setStyle(_mapStyle);
+  map.once('style.load', () => {
+    map.dragRotate.disable();
+    map.touchZoomRotate.disableRotation();
+    // Do NOT call attachMapListeners() here — listeners survive setStyle().
+    if (_currentGeojson) addZoneLayers(_currentGeojson);
+    updateCarMarkers();
+  });
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function abbreviate(s) {
+  if (!s) return s;
+  return s
+    .replace(/\bAvenue\b/gi, 'Ave').replace(/\bBoulevard\b/gi, 'Blvd')
+    .replace(/\bStreet\b/gi, 'St').replace(/\bDrive\b/gi, 'Dr')
+    .replace(/\bCourt\b/gi, 'Ct').replace(/\bPlace\b/gi, 'Pl')
+    .replace(/\bLane\b/gi, 'Ln').replace(/\bRoad\b/gi, 'Rd')
+    .replace(/\bNorth\b/gi, 'N').replace(/\bSouth\b/gi, 'S')
+    .replace(/\bEast\b/gi, 'E').replace(/\bWest\b/gi, 'W');
 }
 
 function latLonToScreen(lat, lon) {
-  const mbMap = getMapboxMap();
-  if (!mbMap) return null;
+  if (!map) return null;
   const rect = mapDiv.getBoundingClientRect();
-  const px = mbMap.project([lon, lat]);
+  const px   = map.project([lon, lat]);
   return { x: rect.left + px.x, y: rect.top + px.y };
 }
 
@@ -526,11 +919,8 @@ function nearestRegionNameByCoords(lat, lon) {
   return best || '';
 }
 
-// source: 'gps' | 'ip' | false
 function setLocationKnown(source, lat = null, lon = null, city = null) {
-  _locSource = source || null;
-  _locLat = lat; _locLon = lon;
-  _locCity = city || null;
+  _locSource = source || null; _locLat = lat; _locLon = lon; _locCity = city || null;
   btnLocate.classList.remove('ip', 'gps');
   if (source) btnLocate.classList.add(source);
   updateLocateInfo();
@@ -551,227 +941,6 @@ function updateLocateInfo() {
   }
 }
 
-function screenToLatLon(clientX, clientY) {
-  const mbMap = getMapboxMap();
-  if (!mbMap) return null;
-  const rect = mapDiv.getBoundingClientRect();
-  const ll = mbMap.unproject([clientX - rect.left, clientY - rect.top]);
-  return { lat: ll.lat, lon: ll.lng };
-}
-
-// ── Map contextmenu (right-click to add car) ─────────────────────────────────
-mapDiv.addEventListener('contextmenu', e => {
-  e.preventDefault();
-  const pos = screenToLatLon(e.clientX, e.clientY);
-  if (!pos) return;
-  pendingLat = pos.lat;
-  pendingLon = pos.lon;
-  showCtxMenu(e.clientX, e.clientY);
-});
-
-document.addEventListener('click', e => {
-  if (!e.target.closest('#ctx-menu')) hideCtxMenu();
-  // Close name panel when clicking outside it (but not from the elements that open it)
-  if (namePanel.style.display !== 'none'
-      && !e.target.closest('#name-panel')
-      && !e.target.closest('#ctx-menu')
-      && !e.target.closest('#gps-pin-popup')) {
-    hideNamePanel();
-  }
-});
-
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') {
-    hideCtxMenu();
-    if (namePanel.style.display !== 'none') hideNamePanel();
-  }
-});
-
-// ── Default map ───────────────────────────────────────────────────────────────
-function renderDefaultMap() {
-  Plotly.newPlot(mapDiv, [], {
-    mapbox: { style: getMapboxStyle(), center: { lat: DEFAULT_CENTER.lat, lon: DEFAULT_CENTER.lon }, zoom: DEFAULT_CENTER.zoom, bearing: 0 },
-    margin: { r: 0, t: 0, l: 0, b: 0 },
-  }, { scrollZoom: true, displayModeBar: false, responsive: true }).then(attachPlotlyListeners);
-}
-
-let _renderedRegion = null;
-
-function renderMap(figure) {
-  if (!figure || !figure.data) return;
-  _baseFigure = figure;
-  const region = regionSelect.value;
-  // newPlot on region change (clears stale polygon fills); react otherwise (preserves tile cache).
-  const isNewRegion = region !== _renderedRegion;
-  const fn = isNewRegion ? Plotly.newPlot : Plotly.react;
-  _renderedRegion = region;
-  // Preserve user-selected map style and current pan/zoom on same-region reload.
-  const backendMb = figure.layout?.mapbox || {};
-  const liveMb    = !isNewRegion ? getMapboxMap() : null;
-  const liveCenter = liveMb?.getCenter();
-  const center = liveCenter
-    ? { lat: liveCenter.lat, lon: liveCenter.lng }
-    : (backendMb.center || { lat: DEFAULT_CENTER.lat, lon: DEFAULT_CENTER.lon });
-  const zoom = liveMb ? liveMb.getZoom() : (backendMb.zoom ?? DEFAULT_CENTER.zoom);
-  const layout = {
-    ...(figure.layout || {}),
-    mapbox: { ...backendMb, style: getMapboxStyle(), center, zoom, bearing: 0 },
-    margin: { r: 0, t: 0, l: 0, b: 0 },
-  };
-  fn(mapDiv, [...figure.data, ...buildCarTraces()], layout, {
-    scrollZoom: true, displayModeBar: false, responsive: true,
-  }).then(() => { attachPlotlyListeners(); highlightCarOnMap(); });
-}
-
-// Abbreviate street address for compact display.
-function abbreviate(s) {
-  if (!s) return s;
-  return s
-    .replace(/\bAvenue\b/gi, 'Ave').replace(/\bBoulevard\b/gi, 'Blvd')
-    .replace(/\bStreet\b/gi, 'St').replace(/\bDrive\b/gi, 'Dr')
-    .replace(/\bCourt\b/gi, 'Ct').replace(/\bPlace\b/gi, 'Pl')
-    .replace(/\bLane\b/gi, 'Ln').replace(/\bRoad\b/gi, 'Rd')
-    .replace(/\bNorth\b/gi, 'N').replace(/\bSouth\b/gi, 'S')
-    .replace(/\bEast\b/gi, 'E').replace(/\bWest\b/gi, 'W');
-}
-
-// Build car marker traces: rings[i] at index n+i, dots[i] at index n+cars.length+i.
-// (n = _baseFigure.data.length — the backend zone traces)
-function buildCarTraces() {
-  const rings = cars.map((car, i) => ({
-    type: 'scattermapbox', lat: [car.lat], lon: [car.lon], mode: 'markers',
-    marker: { size: 14, color: '#ffffff', opacity: 0.9 },
-    hoverinfo: 'none', showlegend: false,
-  }));
-  const dots = cars.map((car, i) => {
-    const addr = abbreviate(carSchedules[car.id]?.address || car.address || `${car.lat.toFixed(4)}, ${car.lon.toFixed(4)}`);
-    return {
-      type: 'scattermapbox', lat: [car.lat], lon: [car.lon], mode: 'markers',
-      marker: { size: 10, color: carColor(i), opacity: 1.0 },
-      hoverinfo: 'none', showlegend: false,
-    };
-  });
-  const pinTraces = _tempPin ? [
-    { type: 'scattermapbox', lat: [_tempPin.lat], lon: [_tempPin.lon], mode: 'markers',
-      marker: { size: 13, color: '#111111', opacity: 0.9 }, hoverinfo: 'none', showlegend: false },
-    { type: 'scattermapbox', lat: [_tempPin.lat], lon: [_tempPin.lon], mode: 'markers',
-      marker: { size: 10, color: '#64748b', opacity: 1.0 }, hoverinfo: 'none', showlegend: false },
-  ] : [];
-  // "You are here" GPS locate pin — large translucent ring + solid blue dot
-  const gpsTraces = _gpsLocPin ? [
-    { type: 'scattermapbox', lat: [_gpsLocPin.lat], lon: [_gpsLocPin.lon], mode: 'markers',
-      marker: { size: 24, color: 'rgba(37,99,235,0.20)', opacity: 1.0 }, hoverinfo: 'none', showlegend: false },
-    { type: 'scattermapbox', lat: [_gpsLocPin.lat], lon: [_gpsLocPin.lon], mode: 'markers',
-      marker: { size: 11, color: '#2563eb', opacity: 1.0 }, hoverinfo: 'none', showlegend: false },
-  ] : [];
-  return [...rings, ...dots, ...pinTraces, ...gpsTraces];
-}
-
-// Re-render car markers + panel, preserving current pan/zoom.
-function overlayCarMarkers() {
-  if (!mapDiv.data) return;
-  const base = _baseFigure ? _baseFigure.data : [];
-  const layout = mapDiv.layout || (_baseFigure ? _baseFigure.layout : {
-    mapbox: { style: 'open-street-map', center: DEFAULT_CENTER, zoom: DEFAULT_CENTER.zoom },
-    margin: { r: 0, t: 0, l: 0, b: 0 },
-  });
-  Plotly.react(mapDiv, [...base, ...buildCarTraces()], layout, {
-    scrollZoom: true, displayModeBar: false, responsive: true,
-  }).then(() => { attachPlotlyListeners(); highlightCarOnMap(); });
-  renderCarsPanel();
-}
-
-// Reverse-geocode a coordinate to a short address string (Nominatim).
-async function reverseGeocode(lat, lon) {
-  try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
-    const d = await r.json();
-    if (!d.address) return null;
-    const a = d.address;
-    const num    = a.house_number || '';
-    const street = a.road || a.pedestrian || '';
-    const city   = a.city || a.town || a.village || '';
-    return [num, street].filter(Boolean).join(' ') + (city ? `, ${city}` : '');
-  } catch (_) { return null; }
-}
-
-function addTempPin(lat, lon) { _tempPin = { lat, lon }; overlayCarMarkers(); }
-function removeTempPin()      { _tempPin = null;         overlayCarMarkers(); }
-
-// ── Plotly event listeners (re-attached after every newPlot) ─────────────────
-function handlePlotlyClick(data) {
-  if (placingCar) return;
-  _plotlyClickHandled = true;
-  setTimeout(() => { _plotlyClickHandled = false; }, 200);
-  if (!data.points || !data.points.length || !_baseFigure) { clearCarSelection(); return; }
-  const pt    = data.points[0];
-  const n     = _baseFigure.data.length;
-  const curve = pt.curveNumber;
-  // Car ring traces: [n .. n+cars.length-1], dots: [n+cars.length .. n+2*cars.length-1]
-  if (curve < n || curve >= n + 2 * cars.length) { clearCarSelection(); return; }
-  const carIdx = curve < n + cars.length ? curve - n : curve - n - cars.length;
-  const clicked = cars[carIdx];
-  if (!clicked) { clearCarSelection(); return; }
-  setSelectedCar(clicked.id);
-  const entry = carsPanel.querySelector(`.car-entry[data-id="${clicked.id}"]`);
-  if (entry) entry.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-const customHoverEl = document.getElementById('custom-hover');
-carsPanel.addEventListener('mouseenter', () => { _hoverSuppressed = true;  customHoverEl.style.display = 'none'; });
-carsPanel.addEventListener('mouseleave', () => { _hoverSuppressed = false; });
-
-function attachPlotlyListeners() {
-  try { mapDiv.removeAllListeners('plotly_click');
-        mapDiv.removeAllListeners('plotly_hover');
-        mapDiv.removeAllListeners('plotly_unhover'); } catch (_) {}
-  mapDiv.on('plotly_click', handlePlotlyClick);
-  // Custom HTML hover (replaces Plotly's hidden hover layer)
-  mapDiv.on('plotly_hover', data => {
-    if (_hoverSuppressed) return;
-    const pt = data.points?.[0];
-    const text = pt?.text;
-    if (!text) { customHoverEl.style.display = 'none'; return; }
-    // Mapbox GL events wrap the DOM event in .originalEvent
-    const ev = data.event?.originalEvent || data.event;
-    if (!ev?.clientX) { customHoverEl.style.display = 'none'; return; }
-    const x = Math.min(ev.clientX + 14, window.innerWidth  - 250);
-    const y = Math.max(ev.clientY - 10, 10);
-    customHoverEl.innerHTML = text;
-    customHoverEl.style.left = x + 'px';
-    customHoverEl.style.top  = y + 'px';
-    customHoverEl.style.display = 'block';
-  });
-  mapDiv.on('plotly_unhover', () => { customHoverEl.style.display = 'none'; });
-
-  const mbMap = getMapboxMap();
-  if (mbMap) {
-    // Disable map rotation (right-click drag / two-finger rotate)
-    try { mbMap.dragRotate.disable(); } catch (_) {}
-    try { mbMap.touchZoomRotate.disableRotation(); } catch (_) {}
-
-    // Background click → deselect car
-    if (_mbBgClickHandler) try { mbMap.off('click', _mbBgClickHandler); } catch (_) {}
-    _mbBgClickHandler = () => { if (!placingCar && !_plotlyClickHandled) clearCarSelection(); };
-    mbMap.on('click', _mbBgClickHandler);
-
-    // Hide hover tooltip while panning
-    if (_mbMoveStartHandler) try { mbMap.off('movestart', _mbMoveStartHandler); } catch (_) {}
-    _mbMoveStartHandler = () => { customHoverEl.style.display = 'none'; };
-    mbMap.on('movestart', _mbMoveStartHandler);
-
-    // Update GPS popup position while dragging
-    if (_mbMoveHandler) try { mbMap.off('move', _mbMoveHandler); } catch (_) {}
-    _mbMoveHandler = updateGpsPinPopup;
-    mbMap.on('move', _mbMoveHandler);
-
-    // Update GPS popup after move ends
-    if (_mbMoveEndHandler) try { mbMap.off('moveend', _mbMoveEndHandler); } catch (_) {}
-    _mbMoveEndHandler = () => { updateGpsPinPopup(); };
-    mbMap.on('moveend', _mbMoveEndHandler);
-  }
-}
-
 // ── Cities / regions ──────────────────────────────────────────────────────────
 async function loadCities() {
   try {
@@ -781,33 +950,27 @@ async function loadCities() {
     regions = {};
     regionSelect.innerHTML = '';
     for (const [key, val] of Object.entries(data.regions)) {
-      regions[key] = { name: val.name, center: val.center };
+      regions[key] = { name: val.name, center: val.center, zoom: val.overview_zoom || 11 };
       const opt = document.createElement('option');
-      opt.value = key;
-      opt.textContent = val.name;
+      opt.value = key; opt.textContent = val.name;
       regionSelect.appendChild(opt);
     }
   } catch (_) {}
 }
 
 regionSelect.addEventListener('change', () => {
+  if (_settingRegion) return;  // programmatic update — don't cascade
   const rk    = regionSelect.value;
   const rName = regions[rk]?.name || rk;
   const rc    = regions[rk]?.center;
-  const newCenter = rc ? { lat: rc.lat, lon: rc.lon } : DEFAULT_CENTER;
+  const newCenter = rc || DEFAULT_CENTER;
 
-  // Instantly clear zone overlays and pan to new region — no waiting for network
-  _baseFigure     = null;
-  _renderedRegion = rk;
-  Plotly.react(mapDiv, buildCarTraces(), {
-    mapbox: { style: getMapboxStyle(), center: newCenter, zoom: 11 },
-    margin: { r: 0, t: 0, l: 0, b: 0 },
-  }, { scrollZoom: true, displayModeBar: false, responsive: true })
-  .then(() => attachPlotlyListeners());
+  _currentGeojson  = null;
+  _renderedRegion  = rk;
+  renderZones(null);
+  if (map) map.jumpTo({ center: [newCenter.lon, newCenter.lat], zoom: regions[rk]?.zoom || 11 });
+  updateCarMarkers();
 
-  setStatus('idle', `⏳ Loading ${rName} map…`);
-
-  // Find first car in this region and use its location, else load by region center
   const carInRegion = cars.find(c => {
     let best = null, bd = Infinity;
     for (const [k, r] of Object.entries(regions)) {
@@ -816,22 +979,23 @@ regionSelect.addEventListener('change', () => {
     }
     return best === rk;
   });
-  if (carInRegion) {
-    activeCarId = carInRegion.id;
-    checkCarWithRender(carInRegion);
-  } else if (rc) {
-    loadAreaMap(rc.lat, rc.lon);
-  }
+  if (carInRegion) { activeCarId = carInRegion.id; checkCarWithRender(carInRegion); }
+  else { setStatus('idle', 'Add a car to check street sweeping.'); }
+  // map.jumpTo above fires moveend → tile-based fetch handles the rest
 });
 
-// ── Nearest region ────────────────────────────────────────────────────────────
 function setNearestRegion(lat, lon) {
   let best = null, bestDist = Infinity;
   for (const [key, r] of Object.entries(regions)) {
     const d = (r.center.lat - lat) ** 2 + (r.center.lon - lon) ** 2;
     if (d < bestDist) { bestDist = d; best = key; }
   }
-  if (best && regionSelect.value !== best) regionSelect.value = best;
+  if (best && regionSelect.value !== best) {
+    _settingRegion = true;
+    regionSelect.value = best;
+    _settingRegion = false;
+  }
+  if (best) _renderedRegion = best;
 }
 
 // ── Cars ──────────────────────────────────────────────────────────────────────
@@ -839,10 +1003,7 @@ async function loadPrefs() {
   if (!session) return;
   try {
     const res = await apiFetch('/prefs');
-    if (res.ok) {
-      const prefs = await res.json();
-      cars = prefs.cars || [];
-    }
+    if (res.ok) { const prefs = await res.json(); cars = prefs.cars || []; }
   } catch (_) {}
 }
 
@@ -857,8 +1018,6 @@ async function savePrefs() {
   } catch (_) {}
 }
 
-
-// IP-based approximate location — no permission prompt, works server-side too.
 async function getIPLocation() {
   try {
     const r = await fetch('https://ipapi.co/json/');
@@ -868,23 +1027,14 @@ async function getIPLocation() {
   return null;
 }
 
-// Load street-zone map for any lat/lon (no car required).
-async function loadAreaMap(lat, lon, zoom = 11) {
-  try {
-    const res = await apiFetch('/check', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lat, lon, region: regionSelect.value || undefined }),
-    });
-    if (!res.ok) return;
-    const data = await res.json();
-    if (data.figure?.layout?.mapbox) data.figure.layout.mapbox.zoom = zoom;
-    renderMap(data.figure);
-    setStatus('idle', 'Add a car to check street sweeping.');
-  } catch (_) {}
+function loadAreaMap(lat, lon, zoom = 11) {
+  _renderedRegion = regionSelect.value || _renderedRegion;
+  if (!map || !_renderedRegion) return;
+  map.jumpTo({ center: [lon, lat], zoom });
+  setStatus('idle', 'Add a car to check street sweeping.');
+  // jumpTo fires moveend → debounced tile-based fetch
 }
 
-// GPS — only used for car location updates (not for initial load)
 function getGPS(onSuccess, onError) {
   if (!navigator.geolocation) { onError?.('Geolocation not supported.'); return; }
   navigator.geolocation.getCurrentPosition(
@@ -895,7 +1045,6 @@ function getGPS(onSuccess, onError) {
 }
 
 // ── Per-car schedule checks ───────────────────────────────────────────────────
-// Fetch /check for a car, render the street zone map, cache result.
 async function checkCarWithRender(car) {
   setStatus('idle', 'Checking…');
   const warmupTimer = setTimeout(() => setStatus('idle', '⏳ Server warming up, please wait…'), 5000);
@@ -908,18 +1057,18 @@ async function checkCarWithRender(car) {
     clearTimeout(warmupTimer);
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
-      setStatus('idle', `Error: ${err.detail}`);
-      return;
+      setStatus('idle', `Error: ${err.detail}`); return;
     }
     const data = await res.json();
     carSchedules[car.id] = data;
-    renderMap(data.figure);
+    renderZones(data.geojson);
+    if (map) map.jumpTo({ center: [car.lon, car.lat], zoom: 16 });
+    updateCarMarkers();
     updateStatusFromSchedules();
     renderCarsPanel();
   } catch (e) { clearTimeout(warmupTimer); setStatus('idle', `Network error: ${e.message}`); }
 }
 
-// Fetch /check for a car silently (no map re-render), update status + markers.
 async function checkCarSilently(car) {
   try {
     const res = await apiFetch('/check', {
@@ -930,72 +1079,65 @@ async function checkCarSilently(car) {
     if (!res.ok) return;
     carSchedules[car.id] = await res.json();
     updateStatusFromSchedules();
-    overlayCarMarkers(); // also calls renderCarsPanel
+    updateCarMarkers();
   } catch (_) {}
 }
 
 function updateStatusFromSchedules() {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  let worst = 'safe', worstCar = null;
+  const todayNames    = [];
+  const tomorrowNames = [];
   for (const [carId, s] of Object.entries(carSchedules)) {
-    if (s.urgency === 'today') { worst = 'today'; worstCar = cars.find(c => c.id === carId); break; }
-    if (s.urgency === 'tomorrow' && worst !== 'today') { worst = 'tomorrow'; worstCar = cars.find(c => c.id === carId); }
+    const car = cars.find(c => c.id === carId);
+    if (!car) continue;
+    if (s.urgency === 'today')    todayNames.push(esc(car.name));
+    if (s.urgency === 'tomorrow') tomorrowNames.push(esc(car.name));
   }
   const dateSpan = `<span style="color:var(--muted);font-weight:400">${today}</span>&emsp;`;
-  const name = esc(worstCar ? worstCar.name : 'your car');
-  statusText.className = worst;
-  if      (worst === 'today')    statusText.innerHTML = `${dateSpan}🚨 Move ${name} today!`;
-  else if (worst === 'tomorrow') statusText.innerHTML = `${dateSpan}⚠️ Move ${name} tomorrow.`;
-  else                           statusText.innerHTML = `${dateSpan}✅ No sweeping today or tomorrow.`;
+  if (todayNames.length) {
+    statusText.className = 'today';
+    statusText.innerHTML = `${dateSpan}🚨 Move ${todayNames.join(', ')} today!`;
+  } else if (tomorrowNames.length) {
+    statusText.className = 'tomorrow';
+    statusText.innerHTML = `${dateSpan}⚠️ Move ${tomorrowNames.join(', ')} tomorrow.`;
+  } else {
+    statusText.className = 'safe';
+    statusText.innerHTML = `${dateSpan}✅ No sweeping today or tomorrow.`;
+  }
 }
 
-// ── Car placement (tap-to-place) ──────────────────────────────────────────────
+// ── Car placement ─────────────────────────────────────────────────────────────
 function startPlacing(editCarId = null) {
   placingCar    = true;
   placingEditId = editCarId;
   placeBanner.classList.add('active');
-
-  // Attach a one-shot click listener on the Mapbox map instance.
-  const mbMap = getMapboxMap();
-  if (mbMap) {
-    _mbPlaceHandler = (e) => commitPlacement(e.lngLat.lat, e.lngLat.lng);
-    mbMap.on('click', _mbPlaceHandler);
-  }
+  if (map) map.getCanvas().style.cursor = 'crosshair';
 }
 
 function stopPlacing() {
   placingCar    = false;
   placingEditId = null;
   placeBanner.classList.remove('active');
-
-  // Remove the mapbox click listener if still attached.
-  const mbMap = getMapboxMap();
-  if (mbMap && _mbPlaceHandler) {
-    mbMap.off('click', _mbPlaceHandler);
-    _mbPlaceHandler = null;
-  }
+  if (map) map.getCanvas().style.cursor = '';
 }
 
-// Called when the user taps a map location during placement mode.
 async function commitPlacement(lat, lon) {
-  const editId = placingEditId; // save before stopPlacing() clears it
+  const editId = placingEditId;
   stopPlacing();
 
   if (editId) {
-    // Updating an existing car's position.
     const car = cars.find(c => c.id === editId);
     if (car) {
       car.lat = lat; car.lon = lon;
       car.address = await reverseGeocode(lat, lon);
       await savePrefs();
-      overlayCarMarkers();
-      checkCarSilently(car); // refresh schedule for new location
+      updateCarMarkers();
+      checkCarSilently(car);
     }
   } else {
-    // Adding a new car — drop temp pin, show name panel next to it.
     pendingLat = lat; pendingLon = lon;
     addTempPin(lat, lon);
-    const sc     = latLonToScreen(lat, lon);
+    const sc      = latLonToScreen(lat, lon);
     const mapRect = mapDiv.getBoundingClientRect();
     const anchorX = sc ? sc.x : mapRect.left + mapRect.width  / 2;
     const anchorY = sc ? sc.y : mapRect.top  + mapRect.height / 2;
@@ -1013,7 +1155,6 @@ function showCtxMenu(x, y) {
   ctxMenu.style.top  = Math.min(y, window.innerHeight - mh) + 'px';
   ctxMenu.style.display = 'block';
 }
-
 function hideCtxMenu() { ctxMenu.style.display = 'none'; }
 
 ctxAddCar.addEventListener('click', () => {
@@ -1023,13 +1164,13 @@ ctxAddCar.addEventListener('click', () => {
   showNamePanel(rect);
 });
 
-// ── Inline name panel (no overlay) ───────────────────────────────────────────
+// ── Inline name panel ─────────────────────────────────────────────────────────
 function showNamePanel(rect) {
-  namePanelInput.value     = defaultCarName();
-  namePanel.style.left     = rect.left  + 'px';
-  namePanel.style.top      = rect.top   + 'px';
-  namePanel.style.width = rect.width + 'px';
-  namePanel.style.display  = 'block';
+  namePanelInput.value    = defaultCarName();
+  namePanel.style.left    = rect.left  + 'px';
+  namePanel.style.top     = rect.top   + 'px';
+  namePanel.style.width   = rect.width + 'px';
+  namePanel.style.display = 'block';
   setTimeout(() => { namePanelInput.focus(); namePanelInput.select(); }, 30);
 }
 
@@ -1053,7 +1194,6 @@ async function savePendingCar() {
   cars.push({ id, name, lat: pendingLat, lon: pendingLon, address });
   removeTempPin();
   namePanel.style.display = 'none';
-  // Clear GPS locate pin after car is added at that location
   if (_gpsLocPin) {
     _gpsLocPin = null;
     if (_gpsLocPinTimer) { clearTimeout(_gpsLocPinTimer); _gpsLocPinTimer = null; }
@@ -1062,9 +1202,34 @@ async function savePendingCar() {
   await savePrefs();
   activeCarId = id;
   setNearestRegion(pendingLat, pendingLon);
-  overlayCarMarkers();
-  checkCarSilently(cars[cars.length - 1]); // schedule for the new car
+  updateCarMarkers();
+  checkCarSilently(cars[cars.length - 1]);
   pendingLat = pendingLon = null;
+}
+
+function addTempPin(lat, lon) { _tempPin = { lat, lon }; updateCarMarkers(); }
+function removeTempPin()      { _tempPin = null;         updateCarMarkers(); }
+
+function defaultCarName() {
+  const used = new Set(cars.map(c => c.name));
+  if (!used.has('Car')) return 'Car';
+  let i = 2;
+  while (used.has(`Car ${i}`)) i++;
+  return `Car ${i}`;
+}
+
+// ── Reverse geocode ───────────────────────────────────────────────────────────
+async function reverseGeocode(lat, lon) {
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+    const d = await r.json();
+    if (!d.address) return null;
+    const a = d.address;
+    const num    = a.house_number || '';
+    const street = a.road || a.pedestrian || '';
+    const city   = a.city || a.town || a.village || '';
+    return [num, street].filter(Boolean).join(' ') + (city ? `, ${city}` : '');
+  } catch (_) { return null; }
 }
 
 // ── Cars panel ────────────────────────────────────────────────────────────────
@@ -1115,8 +1280,7 @@ function scheduleHTML(sched) {
 
 function renderCarsPanel() {
   const ae = document.activeElement;
-  if (carsPanel.contains(ae) && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return; // don't disrupt inline editing
-  // Remove all car entries but keep the legend
+  if (carsPanel.contains(ae) && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
   for (const el of [...carsPanel.querySelectorAll('.car-entry')]) el.remove();
   cars.forEach((car, i) => {
     const color   = carColor(i);
@@ -1125,15 +1289,13 @@ function renderCarsPanel() {
     const urgColor = urgency === 'today'    ? '#ef4444'
                    : urgency === 'tomorrow' ? '#f97316' : '#2563eb';
     const urgBg    = urgency === 'today'    ? '#fee2e2'
-                   : urgency === 'tomorrow' ? '#ffedd5'
-                   : '#ffffff';
+                   : urgency === 'tomorrow' ? '#ffedd5' : '#ffffff';
     const addrText = abbreviate(car.address || sched?.address || '');
 
     const entry = document.createElement('div');
     entry.className = 'car-entry' + (car.id === _selectedCarId ? ' selected' : '');
     entry.dataset.id = car.id;
     entry.style.cssText = `--car-color:${color};--urg-color:${urgColor};--urg-bg:${urgBg}`;
-    // Clicking card body (not buttons/active editors) selects the car
     entry.addEventListener('click', e => {
       if (e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;
       setSelectedCar(car.id);
@@ -1152,7 +1314,7 @@ function renderCarsPanel() {
         <button class="ce-btn ce-btn-place" data-id="${esc(car.id)}">📌 Set location</button>
       </div>`;
 
-    // ── Name editing (double-click to enter edit mode) ──
+    // ── Name editing ──
     const nameEl = entry.querySelector('.ce-name');
     nameEl.addEventListener('dblclick', () => {
       nameEl.contentEditable = 'true'; nameEl.focus();
@@ -1166,11 +1328,11 @@ function renderCarsPanel() {
     nameEl.addEventListener('blur', async () => {
       nameEl.contentEditable = 'false';
       const v = nameEl.textContent.trim();
-      if (v && v !== car.name) { car.name = v; updateCarSelect(); await savePrefs(); }
+      if (v && v !== car.name) { car.name = v; await savePrefs(); }
       else nameEl.textContent = car.name;
     });
 
-    // ── Address editing (double-click to enter edit mode, geocode on commit) ──
+    // ── Address editing ──
     const addrEl = entry.querySelector('.ce-addr');
     addrEl.addEventListener('dblclick', () => {
       addrEl.contentEditable = 'true'; addrEl.focus();
@@ -1195,7 +1357,6 @@ function renderCarsPanel() {
           setTimeout(() => { addrEl.style.color = ''; addrEl.textContent = addrText; }, 2500);
           return;
         }
-        // Build canonical address from Nominatim address components
         const a = hits[0].address || {};
         const num    = a.house_number || '';
         const street = a.road || a.pedestrian || a.footway || '';
@@ -1205,7 +1366,7 @@ function renderCarsPanel() {
         car.address = canonical || hits[0].display_name;
         await savePrefs();
         setNearestRegion(car.lat, car.lon);
-        overlayCarMarkers();
+        updateCarMarkers();
         checkCarSilently(car);
       } catch (_) { addrEl.textContent = addrText; }
     });
@@ -1220,8 +1381,7 @@ function renderCarsPanel() {
         await savePrefs();
         btn.disabled = false; btn.textContent = '📍 GPS';
         setNearestRegion(lat, lon); setLocationKnown('gps', lat, lon);
-        // Immediately pan to new position (don't wait for /check to complete)
-        try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat, lon }, 'mapbox.zoom': 16, 'mapbox.bearing': 0 }); } catch(_) {}
+        if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
         await checkCarWithRender(car);
       }, msg => { btn.disabled = false; btn.textContent = '📍 GPS'; alert(`GPS: ${msg}`); });
     });
@@ -1231,12 +1391,14 @@ function renderCarsPanel() {
 
     // ── Remove button ──
     entry.querySelector('.ce-remove').addEventListener('click', async () => {
+      const marker = _carMarkers.get(car.id);
+      if (marker) { marker.remove(); _carMarkers.delete(car.id); }
       delete carSchedules[car.id];
       cars = cars.filter(c => c.id !== car.id);
       if (activeCarId === car.id) activeCarId = cars[0]?.id ?? null;
       if (_selectedCarId === car.id) _selectedCarId = null;
       await savePrefs();
-      overlayCarMarkers();
+      updateCarMarkers();
       renderCarsPanel();
       if (!cars.length) setStatus('idle', 'Add a car to check street sweeping.');
       else updateStatusFromSchedules();
@@ -1255,6 +1417,7 @@ function apiFetch(path, opts = {}) {
   });
 }
 
+// ── Locate button (GPS) ───────────────────────────────────────────────────────
 document.getElementById('btn-locate').addEventListener('click', () => {
   const btn = document.getElementById('btn-locate');
   btn.disabled = true;
@@ -1263,37 +1426,23 @@ document.getElementById('btn-locate').addEventListener('click', () => {
     btn.disabled = false; btn.textContent = '📍';
     setLocationKnown('gps', lat, lon);
     setNearestRegion(lat, lon);
-    // Show "you are here" pin, pan to location
     if (_gpsLocPinTimer) clearTimeout(_gpsLocPinTimer);
     _gpsLocPin = { lat, lon };
-    try { Plotly.relayout(mapDiv, { 'mapbox.center': { lat, lon }, 'mapbox.zoom': 16, 'mapbox.bearing': 0 }); } catch (_) {}
-    overlayCarMarkers(); // render pin immediately
+    if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
+    updateCarMarkers();
     updateGpsPinPopup();
-    // Always load zone data around GPS location (handles crossing regions)
-    await loadAreaMap(lat, lon, 16);
+    loadAreaMap(lat, lon, 16);
     updateGpsPinPopup();
-    // Auto-clear pin after 15s
     _gpsLocPinTimer = setTimeout(() => {
       _gpsLocPin = null; _gpsLocPinTimer = null;
       document.getElementById('gps-pin-popup').style.display = 'none';
-      overlayCarMarkers();
+      updateCarMarkers();
     }, 15000);
-    // Refresh car schedules in background
     for (const car of cars) checkCarSilently(car);
   }, msg => { btn.disabled = false; btn.textContent = '📍'; alert(`GPS: ${msg}`); });
 });
 
 function setStatus(cls, text) { statusText.className = cls; statusText.textContent = text; }
-
-// ── Map style picker ──────────────────────────────────────────────────────────
-let _mapStyle = 'carto-positron';
-
-function getMapboxStyle() { return _mapStyle; }
-
-document.getElementById('sel-map-style').addEventListener('change', function () {
-  _mapStyle = this.value;
-  try { Plotly.relayout(mapDiv, { 'mapbox.style': _mapStyle, 'mapbox.bearing': 0 }); } catch (_) {}
-});
 
 // ── Service Worker ────────────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

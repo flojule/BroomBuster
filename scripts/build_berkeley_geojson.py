@@ -13,14 +13,21 @@ Requires:
 """
 
 import datetime
+import os
 import pathlib
 import re
+import sys
 from collections import defaultdict
+
+# Allow importing from src/
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import geopandas
 import pdfplumber
 import requests
 from shapely.geometry import LineString, mapping
+
+import normalize as _normalize
 
 # ---------------------------------------------------------------------------
 # Schedule encoding helpers
@@ -171,15 +178,8 @@ def fetch_berkeley_streets() -> geopandas.GeoDataFrame:
 # Join schedule → geometry
 # ---------------------------------------------------------------------------
 
-_SUFFIX_RE = re.compile(
-    r"\s+(ST|AVE|BLVD|DR|RD|CT|PL|LN|WAY|TER|TERR|CIR|HWY|"
-    r"STREET|AVENUE|BOULEVARD|DRIVE|ROAD|COURT|PLACE|LANE|CIRCLE|HIGHWAY)\.?$",
-    re.IGNORECASE,
-)
-
-
 def _norm(name: str) -> str:
-    return _SUFFIX_RE.sub("", name.strip()).strip().upper()
+    return _normalize.street_name(name)
 
 
 def build_geojson(

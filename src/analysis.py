@@ -7,19 +7,12 @@ import pyproj as _pyproj
 from shapely.geometry import MultiPolygon, Point, Polygon
 
 import gps
+import normalize
 import notification
 
-# Street-type suffixes to strip before name comparison so "CHESTNUT ST" matches
-# a segment stored as "CHESTNUT" (or vice-versa).
-_STREET_SUFFIXES = re.compile(
-    r"\b(ST|AVE|BLVD|DR|RD|CT|PL|LN|WAY|TER|TERR|CIR|HWY|PKWY|EXPY|"
-    r"STREET|AVENUE|BOULEVARD|DRIVE|ROAD|COURT|PLACE|LANE|CIRCLE|HIGHWAY)\b\.?$",
-    re.IGNORECASE,
-)
-
+# Canonical street-name comparison key — delegates to normalize module.
 def _norm_name(name: str) -> str:
-    """Strip trailing street-type suffix and whitespace for comparison."""
-    return _STREET_SUFFIXES.sub("", name).strip().upper()
+    return normalize.street_name(name)
 
 
 # Matches time ranges like "8AM–10AM", "7:30AM-9AM", "8AM to 10AM"
@@ -119,12 +112,28 @@ def check_street_sweeping(myCar, myCity):
     # The index is built once per unique GDF object and cached at module level.
     name_idx = _get_name_index(myCity)
 
-    if myStreetName and myStreets and myStreetName == myStreets[0]:
+    if myStreetName and myStreets and _norm_name(myStreetName) == _norm_name(myStreets[0]):
         car_x, car_y = _CRS_TRANSFORMER.transform(myCar.lon, myCar.lat)
         car_pt = Point(car_x, car_y)
         ranged_match        = False
         nearest_no_range    = None
         nearest_no_range_d  = float('inf')
+
+        # Precompute nearest segment index (geometric) among matching indices
+        # (index label of the segment whose geometry is closest to the car)
+        nearest_idx = None
+        nearest_idx_d = float('inf')
+        for i in name_idx.get(_norm_name(myStreetName), []):
+            try:
+                cand = myCity.loc[i]
+            except Exception:
+                continue
+            geom = cand.geometry
+            if geom is not None and not geom.is_empty:
+                d = car_pt.distance(geom)
+                if d < nearest_idx_d:
+                    nearest_idx_d = d
+                    nearest_idx = i
 
         for i in name_idx.get(_norm_name(myStreetName), []):
             street_section = myCity.loc[i]
@@ -139,9 +148,30 @@ def check_street_sweeping(myCar, myCity):
             r_t = _safe_int(street_section.get("R_T_ADD"))
 
             if l_f is not None and l_t is not None and r_f is not None and r_t is not None:
-                # Address ranges present — match only if car's number is in range
+                # Address ranges present — match only if car's number is in range.
+                # For range matches prefer the parity-matching side; if this
+                # particular segment is also the geometrically nearest one,
+                # include both sides so UI/cards can show the nearest segment
+                # schedule even when both sides are defined.
                 if myNumber and (l_f <= myNumber <= l_t or r_f <= myNumber <= r_t):
-                    _collect(street_section)
+                    # If this matched segment is the geometrically nearest one,
+                    # include both side schedules; otherwise include only the
+                    # side matching the car's parity.
+                    if i == nearest_idx:
+                        e = get_schedule(street_section, 0)
+                        o = get_schedule(street_section, 1)
+                        if e:
+                            schedule_even.add(e)
+                        if o:
+                            schedule_odd.add(o)
+                    else:
+                        side = 1 if (myNumber % 2) else 0
+                        sched = get_schedule(street_section, side)
+                        if sched:
+                            if side == 0:
+                                schedule_even.add(sched)
+                            else:
+                                schedule_odd.add(sched)
                     ranged_match = True
             else:
                 # No address ranges — track the nearest segment only
@@ -156,7 +186,25 @@ def check_street_sweeping(myCar, myCity):
         if not ranged_match and nearest_no_range is not None:
             _collect(nearest_no_range)
 
-    elif myStreetName and myStreets and len(myStreets) > 1 and myStreetName == myStreets[1]:
+        # Also include the geometrically nearest matching segment's schedules
+        # in the per-side sets so downstream invariants (cards showing the
+        # nearest segment) are preserved. The combined `schedule` value is
+        # still chosen based on the car's side when a house number is known.
+        if nearest_idx is not None:
+            try:
+                nearest_row = myCity.loc[nearest_idx]
+                seg_city = nearest_row.get("_city")
+                if not (car_city and seg_city and seg_city != car_city):
+                    e = get_schedule(nearest_row, 0)
+                    o = get_schedule(nearest_row, 1)
+                    if e:
+                        schedule_even.add(e)
+                    if o:
+                        schedule_odd.add(o)
+            except Exception:
+                pass
+
+    elif myStreetName and myStreets and len(myStreets) > 1 and _norm_name(myStreetName) == _norm_name(myStreets[1]):
         # Corner case: car is on myStreets[0] but geocoder returned myStreets[1].
         # Use the nearest segment on the actual street (no house number available).
         myActualStreet = myStreets[0]
@@ -173,6 +221,37 @@ def check_street_sweeping(myCar, myCity):
                     nearest_row  = row
         if nearest_row is not None:
             _collect(nearest_row)
+
+    # GDF-name fallback — when Nominatim returned a name that doesn't match any
+    # GDF street (e.g. missing directional prefix: "Chestnut St" vs "N Chestnut
+    # St"), try each nearby GDF street directly.  This fixes the mismatch where
+    # the map shows a street as sweeping but the car card says all clear.
+    if not schedule_even and not schedule_odd and myStreets:
+        car_x, car_y = _CRS_TRANSFORMER.transform(myCar.lon, myCar.lat)
+        car_pt = Point(car_x, car_y)
+        for gdf_street in myStreets[:3]:
+            norm_key = _norm_name(gdf_street)
+            idxs = name_idx.get(norm_key, [])
+            if not idxs:
+                continue
+            nearest_row, nearest_d = None, float("inf")
+            for i in idxs:
+                try:
+                    row = myCity.loc[i]
+                except Exception:
+                    continue
+                seg_city = row.get("_city")
+                if car_city and seg_city and seg_city != car_city:
+                    continue
+                geom = row.geometry
+                if geom is not None and not geom.is_empty:
+                    d = car_pt.distance(geom)
+                    if d < nearest_d:
+                        nearest_d = d
+                        nearest_row = row
+            if nearest_row is not None:
+                _collect(nearest_row)
+                break  # resolved via nearest GDF street; stop trying others
 
     # Zone/polygon fallback — for area-based datasets like Chicago ward sections.
     # If no schedule was found above, test whether the car sits inside a zone polygon.
@@ -195,14 +274,15 @@ def check_street_sweeping(myCar, myCity):
                 if g is not None and not g.is_empty and g.contains(car_pt):
                     _collect(row)
 
-    # Always check both sides so a car on either side of the street is alerted
-    schedule = list(schedule_even | schedule_odd)
-
     schedule_even = list(schedule_even)
     schedule_odd  = list(schedule_odd)
 
-    car_side = "even" if (myNumber and myNumber % 2 == 0) else "odd"
-    message = notification.compose_message(schedule_even, schedule_odd, car_side)
+    # Always alert on either side of the street so the car is warned
+    # regardless of which side is being swept.
+    schedule = list(set(schedule_even) | set(schedule_odd))
+
+    car_side = normalize.car_side(myNumber)
+    message  = notification.compose_message(schedule_even, schedule_odd, car_side)
 
     return schedule, schedule_even, schedule_odd, message
 
@@ -269,6 +349,12 @@ def _get_name_index(gdf) -> dict:
     if gdf_id not in _name_index_cache:
         idx: dict[str, list] = {}
         for i, row in gdf.iterrows():
+            # Prefer precomputed STREET_KEY if available (already canonical).
+            k = row.get("STREET_KEY")
+            if _is_str(k):
+                idx.setdefault(k, []).append(i)
+                continue
+            # Fallback to normalising the stored STREET_NAME
             n = row.get("STREET_NAME")
             if _is_str(n):
                 idx.setdefault(_norm_name(n), []).append(i)
