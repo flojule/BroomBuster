@@ -18,7 +18,7 @@ import data_loader
 import pytest
 
 
-def test_full_region_triggers_sync_load(monkeypatch):
+def test_full_region_triggers_sync_load():
     # Choose bay_area center point used elsewhere
     lat, lon = 37.821326, -122.280705
 
@@ -27,10 +27,6 @@ def test_full_region_triggers_sync_load(monkeypatch):
     api_mod._city_gdfs_3857.clear()
     api_mod._city_events.clear()
     api_mod._region_combined.clear()
-
-    # Monkeypatch gps to avoid external calls
-    monkeypatch.setattr(api_mod.gps_module, "get_street_info", lambda car: (None, None))
-    monkeypatch.setattr(api_mod.gps_module, "get_nearby_streets_from_gdf", lambda lat_, lon_, gdf: [])
 
     with TestClient(api_mod.app) as client:
         resp = client.post("/check", json={"lat": lat, "lon": lon, "region": "bay_area", "full_region": True})

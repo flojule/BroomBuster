@@ -286,6 +286,45 @@ def check_street_sweeping(myCar, myCity):
 
     return schedule, schedule_even, schedule_odd, message
 
+def compute_urgency(segment, local_now=None):
+    """Pure urgency function — no GDF, no spatial work, no Nominatim.
+
+    Given a resolved segment (pandas Series from a normalised GDF) and a
+    timezone-aware datetime, return "today" | "tomorrow" | False. Reads
+    DAY_EVEN/ODD, TIME_EVEN/ODD, DESC_EVEN/ODD directly from the segment.
+    The union of both sides is alerted on, matching the existing
+    "alert either side" policy — the car is at risk regardless of which
+    side is being swept.
+
+    This is the authoritative urgency function. The /check endpoint, the
+    notifier, and (in M3) the TypeScript port all call into this exact
+    shape. Behaviour must match check_day_street_sweeping() one-for-one.
+    """
+    if segment is None:
+        return False
+    schedules = []
+    e = get_schedule(segment, 0)
+    o = get_schedule(segment, 1)
+    if e:
+        schedules.append(e)
+    if o:
+        schedules.append(o)
+    return check_day_street_sweeping(schedules, local_now=local_now)
+
+
+def schedules_for_segment(segment):
+    """Return (schedule_even, schedule_odd) for a single segment.
+
+    Each is a list of zero or one (code, desc, time) tuples — the format
+    the frontend already consumes via schedule_even / schedule_odd.
+    """
+    if segment is None:
+        return [], []
+    e = get_schedule(segment, 0)
+    o = get_schedule(segment, 1)
+    return ([e] if e else []), ([o] if o else [])
+
+
 def check_day_street_sweeping(schedule, local_now=None):
     myDay      = local_now.date() if local_now else datetime.date.today()
     myTomorrow = myDay + datetime.timedelta(days=1)

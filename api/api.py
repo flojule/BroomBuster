@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import threading
@@ -8,12 +9,14 @@ from typing import Optional, List
 from zoneinfo import ZoneInfo
 
 import geopandas
+import json
 import pandas as pd
 import shapely.geometry as _shp_geom
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Allow importing from src/ and api/ regardless of working directory
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -23,26 +26,23 @@ sys.path.insert(0, os.path.join(_HERE, "..", "src"))  # src/ — for all existin
 import analysis
 import car as car_module
 import data_loader
-import gps as gps_module
+import db
 import maps
 import normalize as _normalize
+import notification
+import resolve
+from auth import router as auth_router
 from cities import CITIES, REGIONS
 from deps import verify_jwt
 
-# ---------------------------------------------------------------------------
-# Optional Supabase client (for user prefs persistence)
-# ---------------------------------------------------------------------------
+_PRELOAD_REGION = os.environ.get("PRELOAD_REGION", "").strip()
+_RESPONSE_SIZE_WARN_BYTES = 200_000
 
-_supabase = None
-_SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-_SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
-
-if _SUPABASE_URL and _SUPABASE_SERVICE_KEY:
-    try:
-        from supabase import create_client
-        _supabase = create_client(_SUPABASE_URL, _SUPABASE_SERVICE_KEY)
-    except Exception as _e:
-        print(f"Warning: could not initialise Supabase client — {_e}")
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("broombuster.api")
 
 # ---------------------------------------------------------------------------
 # City-level GDF cache — loaded in parallel background threads at startup.
@@ -66,8 +66,8 @@ def _load_city_bg(city_key: str) -> None:
         _city_gdfs[city_key] = gdf.to_crs("EPSG:4326")
         _city_gdfs_3857[city_key] = gdf.to_crs("EPSG:3857")
         _city_loaded_at[city_key] = time.time()
-    except Exception as exc:
-        print(f"  WARNING: could not load '{city_key}': {exc}", flush=True)
+    except (OSError, ValueError, RuntimeError) as exc:
+        logger.warning("could not load city '%s': %s", city_key, exc)
     finally:
         _city_events[city_key].set()
 
@@ -75,7 +75,7 @@ def _load_city_bg(city_key: str) -> None:
 def _hot_swap_city(city_key: str) -> None:
     """Re-download and atomically replace a city's in-memory GDFs."""
     city = CITIES[city_key]
-    print(f"[freshness] Refreshing {city['name']}…", flush=True)
+    logger.info("[freshness] refreshing %s", city["name"])
     try:
         gdf = data_loader.load_city_data(city_key, force_refresh=True)
         gdf = gdf.copy()
@@ -87,9 +87,9 @@ def _hot_swap_city(city_key: str) -> None:
         for rk, rv in REGIONS.items():
             if city_key in rv["cities"]:
                 _region_combined.pop(rk, None)
-        print(f"[freshness] {city['name']} refreshed successfully.", flush=True)
-    except Exception as exc:
-        print(f"[freshness] WARNING: could not refresh '{city_key}': {exc}", flush=True)
+        logger.info("[freshness] %s refreshed successfully", city["name"])
+    except (OSError, ValueError, RuntimeError) as exc:
+        logger.warning("[freshness] could not refresh '%s': %s", city_key, exc)
 
 
 def _freshness_checker_bg() -> None:
@@ -137,11 +137,22 @@ def _freshness_checker_bg() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    db.init_db()
     # Kick off all city loads in parallel — server is immediately ready.
     for rv in REGIONS.values():
         for ck in rv["cities"]:
             _city_events[ck] = threading.Event()
             threading.Thread(target=_load_city_bg, args=(ck,), daemon=True).start()
+    # Synchronously wait for the preload region before accepting traffic.
+    # Set PRELOAD_REGION=bay_area (or any region key) in the environment to
+    # ensure the first /check after boot is instant rather than waiting in-band.
+    if _PRELOAD_REGION and _PRELOAD_REGION in REGIONS:
+        logger.info("[preload] waiting for region '%s'…", _PRELOAD_REGION)
+        for ck in REGIONS[_PRELOAD_REGION]["cities"]:
+            ev = _city_events.get(ck)
+            if ev:
+                ev.wait(timeout=120)
+        logger.info("[preload] region '%s' ready", _PRELOAD_REGION)
     # Background freshness checker — runs after startup, checks hourly.
     threading.Thread(target=_freshness_checker_bg, daemon=True).start()
     yield
@@ -159,6 +170,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -311,12 +324,14 @@ def cities():
 
 
 class CheckRequest(BaseModel):
-    lat: float
-    lon: float
+    lat: float = Field(..., ge=-90.0, le=90.0)
+    lon: float = Field(..., ge=-180.0, le=180.0)
     region: Optional[str] = None
     full_region: Optional[bool] = False
-    bbox: Optional[List[float]] = None  # [min_lat, min_lon, max_lat, max_lon]
-    tiles: Optional[List[str]] = None  # list of tiles as "z/x/y"
+    # bbox as [min_lat, min_lon, max_lat, max_lon] — exactly four entries
+    bbox: Optional[List[float]] = Field(None, min_length=4, max_length=4)
+    # Up to 64 tiles per request; each entry validated as "z/x/y" at use site
+    tiles: Optional[List[str]] = Field(None, max_length=64)
 
 
 @app.post("/check")
@@ -341,8 +356,8 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
                 if not ev:
                     _city_events[ck] = threading.Event()
                 _city_events[ck].set()
-            except Exception as _e:
-                print(f"[sync-load] Warning: could not load city {ck}: {_e}")
+            except (OSError, ValueError, RuntimeError) as exc:
+                logger.warning("sync-load failed for city %s: %s", ck, exc)
 
     myCity_4326, myCity_3857 = _get_region_gdfs(req.lat, req.lon, region)
     if myCity_4326 is None:
@@ -351,37 +366,63 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
             detail=f"No data available for region '{region}' yet — try again shortly.",
         )
 
+    city_key = _nearest_city_key(req.lat, req.lon, region)
     myCar = car_module.Car(lat=req.lat, lon=req.lon)
-    myCar._city = _nearest_city_key(req.lat, req.lon, region)
+    myCar._city = city_key
 
     # Tile-only requests (map background rendering) don't need geocoding or
     # street-sweeping analysis — skipping them cuts response time by ~2-3 s.
     is_tile_only = bool(req.tiles) and not req.full_region
 
+    # Default response values for the tile-only path
+    schedule_even: list = []
+    schedule_odd:  list = []
+    message:  str = ""
+    urgency: object = False
+    car_side: str = "odd"
+    address:  str = ""
+    snap: Optional[dict] = None
+
     if not is_tile_only:
-        # Reverse-geocode street name/number (Nominatim, single HTTP call).
+        # SINGLE SOURCE OF TRUTH — resolve the car to one authoritative segment.
+        # Every downstream field (street name, side, schedule, urgency, map
+        # highlight) is derived from this one resolved row. This is the fix
+        # for the cross-field inconsistency bug where Nominatim, the spatial
+        # join, and the address-parity could all disagree silently.
         try:
-            myCar.street_name, myCar.street_number = gps_module.get_street_info(myCar)
-        except Exception as _e:
-            print(f"Warning: reverse-geocode failed — {_e}")
+            resolved = resolve.resolve_car_segment(
+                myCity_3857, req.lat, req.lon,
+                city_key=city_key, max_distance_m=50.0,
+            )
+        except resolve.NoSegmentNearby:
+            resolved = None
 
-        # Find nearby streets from the loaded GDF (replaces slow Overpass API call).
-        myCar.streets = gps_module.get_nearby_streets_from_gdf(req.lat, req.lon, myCity_3857)
+        if resolved is not None:
+            myCar.street_name = resolved.street_name
+            schedule_even, schedule_odd = analysis.schedules_for_segment(resolved.segment)
+            urgency  = analysis.compute_urgency(resolved.segment, local_now=local_now)
+            car_side = resolved.side or "odd"
+            snap = {
+                "street_name": resolved.street_display or resolved.street_name,
+                "distance_m":  round(resolved.distance_m, 1),
+                "is_polygon":  resolved.is_polygon,
+            }
 
-        schedule, schedule_even, schedule_odd, message = analysis.check_street_sweeping(
-            myCar, myCity_3857
-        )
-        urgency = analysis.check_day_street_sweeping(schedule, local_now=local_now)
+            # Address label comes directly from the resolved segment — no
+            # Nominatim call on the critical path. Nominatim is called
+            # client-side (reverseGeocode in the frontend) for the initial
+            # car-placement label and is not needed here.
+            display = resolved.street_display or resolved.street_name
+            address = display or f"{req.lat:.4f}, {req.lon:.4f}"
 
-        number = getattr(myCar, "street_number", None)
-        car_side = _normalize.car_side(number)
-        address = (
-            f"{number or ''} {myCar.street_name or ''}".strip()
-            or f"{req.lat:.4f}, {req.lon:.4f}"
-        )
-    else:
-        schedule_even, schedule_odd, message = [], [], ""
-        urgency, car_side, address = False, "odd", ""
+            message = notification.compose_message(
+                schedule_even, schedule_odd, car_side
+            )
+        else:
+            # Car is not near any mapped street — be explicit rather than
+            # silently guessing.
+            address = f"{req.lat:.4f}, {req.lon:.4f}"
+            message = "Car not near a mapped street."
 
     # By default clip to ~2 km radius to avoid serializing the full region
     # (which can be large). Clients can request the entire region by setting
@@ -393,7 +434,7 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
         import math
         try:
             from shapely.ops import unary_union
-        except Exception:
+        except ImportError:
             unary_union = None
 
         def _tile_lat(yy: int, zz: int) -> float:
@@ -412,7 +453,7 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
                 z = int(parts[0])
                 x = int(parts[1])
                 y = int(parts[2])
-            except Exception:
+            except ValueError:
                 continue
             n = 2 ** z
             lon_min = x / n * 360.0 - 180.0
@@ -444,7 +485,7 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
         _clip = _shp_geom.box(min_lon, min_lat, max_lon, max_lat)
         myCity_display = myCity_4326[myCity_4326.geometry.intersects(_clip)]
     else:
-        _CLIP_DEG = 0.02  # ≈ 2 km
+        _CLIP_DEG = 0.015  # ≈ 1.5 km
         _clip = _shp_geom.box(
             req.lon - _CLIP_DEG, req.lat - _CLIP_DEG,
             req.lon + _CLIP_DEG, req.lat + _CLIP_DEG,
@@ -459,6 +500,14 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
         local_now=local_now,
     )
 
+    geojson_size = len(json.dumps(geojson).encode())
+    if geojson_size > _RESPONSE_SIZE_WARN_BYTES:
+        logger.warning(
+            "/check geojson exceeds 200 KB (%d B) — region=%s lat=%.4f lon=%.4f clip=%s",
+            geojson_size, region, req.lat, req.lon,
+            "tiles" if req.tiles else ("full" if req.full_region else "radius"),
+        )
+
     return {
         "message": message,
         "urgency": urgency,
@@ -467,6 +516,10 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
         "car_side": car_side,
         "address": address,
         "geojson": geojson,
+        # `snap` tells the frontend which segment the resolver chose and how
+        # far the car is from it — powers the "snapped to 5th St — 12 m"
+        # indicator and ensures the map highlight matches the alarm.
+        "snap": snap,
     }
 
 
@@ -478,43 +531,35 @@ class PrefsRequest(BaseModel):
     cars: Optional[list] = []
 
 
-_PREFS_DEFAULT = {
-    "home_lat": None, "home_lon": None,
-    "preferred_region": "bay_area", "notify_email": False, "cars": [],
-}
-
-
 @app.get("/prefs")
 def get_prefs(user_id: str = Depends(verify_jwt)):
-    if _supabase is None:
-        return _PREFS_DEFAULT
-    result = _supabase.table("user_prefs").select("*").eq("user_id", user_id).execute()
-    rows = result.data
-    if not rows:
-        return _PREFS_DEFAULT
-    row = rows[0]
-    return {
-        "home_lat": row.get("home_lat"),
-        "home_lon": row.get("home_lon"),
-        "preferred_region": row.get("preferred_region", "bay_area"),
-        "notify_email": row.get("notify_email", False),
-        "cars": row.get("cars") or [],
-    }
+    return db.get_prefs(user_id)
 
 
 @app.post("/prefs")
 def save_prefs(req: PrefsRequest, user_id: str = Depends(verify_jwt)):
-    if _supabase is None:
-        return {"saved": True}  # no-op when no DB configured
-    _supabase.table("user_prefs").upsert({
-        "user_id": user_id,
-        "home_lat": req.home_lat,
-        "home_lon": req.home_lon,
-        "preferred_region": req.preferred_region,
-        "notify_email": req.notify_email,
-        "cars": req.cars,
-    }).execute()
+    db.save_prefs(user_id, {
+        "home_lat":          req.home_lat,
+        "home_lon":          req.home_lon,
+        "preferred_region":  req.preferred_region,
+        "notify_email":      req.notify_email,
+        "cars":              req.cars,
+    })
     return {"saved": True}
+
+
+# ---------------------------------------------------------------------------
+# Runtime config endpoint — injected into the frontend as window globals
+# ---------------------------------------------------------------------------
+
+_DEV_MODE_API = os.environ.get("DEV_MODE", "").lower() in ("1", "true", "yes")
+
+
+@app.get("/config.js", include_in_schema=False)
+def config_js():
+    """Serve runtime config as a JS snippet so the frontend knows DEV_MODE."""
+    js = f"window.DEV_MODE = {'true' if _DEV_MODE_API else 'false'};\n"
+    return Response(content=js, media_type="application/javascript")
 
 
 # ---------------------------------------------------------------------------

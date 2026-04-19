@@ -1,0 +1,35 @@
+# BroomBuster Caddyfile
+#
+# Three deployment scenarios — uncomment the one you need:
+#
+# 1. Public domain with Let's Encrypt (Pi accessible via internet or Tailscale Funnel):
+#       broombuster.yourdomain.com { ... }
+#
+# 2. Tailscale HTTPS (Pi on your tailnet, cert auto-issued by Tailscale):
+#       broombuster.your-machine-name.ts.net { ... }
+#
+# 3. LAN-only (self-signed cert, accept the browser warning):
+#       https://localhost { tls internal }
+#
+# Default below: LAN/localhost self-signed. Change the site address to match
+# your setup and Caddy will handle certs automatically.
+
+https://localhost {
+    tls internal
+
+    # Proxy all API and auth routes to the FastAPI container.
+    reverse_proxy /auth/*   api:8000
+    reverse_proxy /check    api:8000
+    reverse_proxy /prefs    api:8000
+    reverse_proxy /cities   api:8000
+    reverse_proxy /health   api:8000
+    reverse_proxy /config.js api:8000
+
+    # Everything else is served as static files by the API's StaticFiles mount.
+    reverse_proxy * api:8000
+
+    # Cache static assets aggressively; API responses never.
+    @static path *.js *.css *.webp *.png *.svg *.ico *.json /manifest.json
+    header @static Cache-Control "public, max-age=86400, stale-while-revalidate=3600"
+    header /config.js Cache-Control "no-store"
+}

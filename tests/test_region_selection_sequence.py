@@ -28,14 +28,9 @@ def _extract_feature_keys(geo):
     return keys
 
 
-def test_full_region_then_bbox_consistency(monkeypatch):
+def test_full_region_then_bbox_consistency():
     # Use a point in the bay area (Chestnut sample)
     lat, lon = 37.821326, -122.280705
-
-    # Monkeypatch gps to avoid external network calls in the endpoint
-    # so the app can run deterministically in DEV_MODE.
-    monkeypatch.setattr(api_mod.gps_module, "get_street_info", lambda car: (None, None))
-    monkeypatch.setattr(api_mod.gps_module, "get_nearby_streets_from_gdf", lambda lat_, lon_, gdf: [])
 
     # Preload the city GDFs into the API module to avoid background-load races
     from cities import REGIONS
@@ -71,11 +66,9 @@ def test_full_region_then_bbox_consistency(monkeypatch):
     assert not missing, f"Features present in bbox but missing from full-region preload: {missing}"
 
 
-def test_bbox_then_full_region_consistency(monkeypatch):
+def test_bbox_then_full_region_consistency():
     # Reverse order: request bbox first, then full_region — UI may do either.
     lat, lon = 37.821326, -122.280705
-    monkeypatch.setattr(api_mod.gps_module, "get_street_info", lambda car: (None, None))
-    monkeypatch.setattr(api_mod.gps_module, "get_nearby_streets_from_gdf", lambda lat_, lon_, gdf: [])
 
     # Preload cities to avoid background thread races
     from cities import REGIONS

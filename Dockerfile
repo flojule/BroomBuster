@@ -1,23 +1,29 @@
+# syntax=docker/dockerfile:1
+# Builds for linux/amd64 and linux/arm64 (Raspberry Pi 5).
+# Build with: docker buildx build --platform linux/arm64 -t broombuster .
+
 FROM python:3.12-slim
 
 WORKDIR /app
 
-# System deps for geopandas / shapely
+# System deps for GeoPandas / Shapely / PyProj.
+# Pre-built wheels exist for arm64; libgdal-dev is for the rare source-build fallback.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdal-dev \
     libspatialindex-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY requirements.txt ./requirements.txt
-COPY api/requirements.txt ./api-requirements.txt
+COPY requirements.txt          ./requirements.txt
+COPY api/requirements.txt      ./api-requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt -r api-requirements.txt
 
-# Copy source
 COPY src/      ./src/
 COPY api/      ./api/
 COPY frontend/ ./frontend/
 COPY data/     ./data/
 
+# /data volume — SQLite DB and cached city data land here at runtime.
+VOLUME ["/data"]
+
 EXPOSE 8000
-CMD ["uvicorn", "api.api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "api.api:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

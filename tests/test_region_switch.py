@@ -49,18 +49,12 @@ def client_with_data(tmp_path_factory):
         yield client
 
 
-def _patch_gps(monkeypatch):
-    monkeypatch.setattr(api_mod.gps_module, "get_street_info", lambda car: (None, None))
-    monkeypatch.setattr(api_mod.gps_module, "get_nearby_streets_from_gdf", lambda lat_, lon_, gdf: [])
-
-
 # ---------------------------------------------------------------------------
 # Region isolation: tile request must return features from the right region
 # ---------------------------------------------------------------------------
 
-def test_bay_area_tiles_return_bay_area_features(client_with_data, monkeypatch):
+def test_bay_area_tiles_return_bay_area_features(client_with_data):
     """Tile request with region=bay_area must return line features (street segments)."""
-    _patch_gps(monkeypatch)
     lat, lon = 37.821326, -122.280705  # Oakland, Chestnut St area
     resp = client_with_data.post("/check", json={
         "lat": lat, "lon": lon,
@@ -77,9 +71,8 @@ def test_bay_area_tiles_return_bay_area_features(client_with_data, monkeypatch):
     )
 
 
-def test_chicago_tiles_return_polygon_features(client_with_data, monkeypatch):
+def test_chicago_tiles_return_polygon_features(client_with_data):
     """Tile request with region=chicago must return polygon features (ward zones)."""
-    _patch_gps(monkeypatch)
     lat, lon = 41.8781, -87.6298  # Chicago city center
     resp = client_with_data.post("/check", json={
         "lat": lat, "lon": lon,
@@ -100,9 +93,8 @@ def test_chicago_tiles_return_polygon_features(client_with_data, monkeypatch):
 # Idempotency: same tile request for the same region returns identical data
 # ---------------------------------------------------------------------------
 
-def test_bay_area_repeated_request_is_idempotent(client_with_data, monkeypatch):
+def test_bay_area_repeated_request_is_idempotent(client_with_data):
     """Repeating the same bay_area tile request must return identical features."""
-    _patch_gps(monkeypatch)
     lat, lon = 37.821326, -122.280705
     payload = {"lat": lat, "lon": lon, "region": "bay_area", "tiles": ["13/1309/3166"]}
 
@@ -115,9 +107,8 @@ def test_bay_area_repeated_request_is_idempotent(client_with_data, monkeypatch):
     assert f1 == f2, "Repeated tile request returned different feature sets"
 
 
-def test_chicago_repeated_request_is_idempotent(client_with_data, monkeypatch):
+def test_chicago_repeated_request_is_idempotent(client_with_data):
     """Repeating the same chicago tile request must return identical features."""
-    _patch_gps(monkeypatch)
     lat, lon = 41.8781, -87.6298
     payload = {"lat": lat, "lon": lon, "region": "chicago", "tiles": ["13/2097/3040"]}
 
@@ -134,13 +125,11 @@ def test_chicago_repeated_request_is_idempotent(client_with_data, monkeypatch):
 # Cross-region: switching back gives the original region's data
 # ---------------------------------------------------------------------------
 
-def test_bay_area_then_chicago_then_bay_area(client_with_data, monkeypatch):
+def test_bay_area_then_chicago_then_bay_area(client_with_data):
     """
     Sequential requests: bay_area → chicago → bay_area.
     The final bay_area response must match the first one (no cross-region bleed).
     """
-    _patch_gps(monkeypatch)
-
     ba_payload = {"lat": 37.821326, "lon": -122.280705, "region": "bay_area", "tiles": ["13/1309/3166"]}
     ch_payload = {"lat": 41.8781,   "lon": -87.6298,   "region": "chicago",  "tiles": ["13/2097/3040"]}
 

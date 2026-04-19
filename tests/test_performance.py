@@ -103,16 +103,13 @@ def test_city_second_load_uses_cache(city_key):
 # API tile request timing — data already in memory
 # ---------------------------------------------------------------------------
 
-def test_api_tile_request_is_fast(monkeypatch):
+def test_api_tile_request_is_fast():
     """
     A tile-based /check request (no full_region, just tiles=[...]) must
     return in under 3 seconds when city data is already loaded.
     """
     from fastapi.testclient import TestClient
     import api.api as api_mod
-
-    monkeypatch.setattr(api_mod.gps_module, "get_street_info", lambda car: (None, None))
-    monkeypatch.setattr(api_mod.gps_module, "get_nearby_streets_from_gdf", lambda lat_, lon_, gdf: [])
 
     lat, lon = 37.821326, -122.280705
 

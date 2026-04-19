@@ -11,6 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="BroomBuster">
   <meta name="theme-color" content="#2563eb">
 
+  <script src="/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.css">
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.js"></script>
@@ -231,6 +232,42 @@
     /* ── Spinner ── */
     .spinner { width: 11px; height: 11px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; vertical-align: middle; margin-right: 3px; }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Dark mode ── */
+    body.dark {
+      --bg: #0f172a; --card: #1e293b; --text: #e2e8f0;
+      --muted: #94a3b8; --border: #334155;
+    }
+    body.dark .maplibregl-map { filter: brightness(.92); }
+
+    /* ── Toast notifications ── */
+    #toast-container {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      z-index: 9999; display: flex; flex-direction: column; gap: 8px;
+      pointer-events: none; align-items: center;
+    }
+    .toast {
+      background: #1e293b; color: #f1f5f9; padding: 9px 16px;
+      border-radius: 20px; font-size: .82rem; font-weight: 500;
+      box-shadow: 0 4px 14px rgba(0,0,0,.35); pointer-events: none;
+      animation: toast-in .2s ease, toast-out .3s ease 2.7s forwards;
+      white-space: nowrap;
+    }
+    .toast.error { background: #7f1d1d; }
+    @keyframes toast-in  { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    @keyframes toast-out { from { opacity: 1; } to { opacity: 0; } }
+
+    /* ── Snap chip ── */
+    #snap-chip {
+      position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+      z-index: 20; display: none; align-items: center; gap: 6px;
+      background: rgba(15,23,42,.82); color: #e2e8f0;
+      border-radius: 14px; padding: 5px 12px;
+      font-size: .74rem; font-weight: 500;
+      box-shadow: 0 2px 8px rgba(0,0,0,.28); white-space: nowrap;
+      pointer-events: none; backdrop-filter: blur(4px);
+    }
+    #snap-chip.visible { display: flex; }
   </style>
 </head>
 <body>
@@ -267,6 +304,7 @@
     <span id="locate-info"></span>
     <button id="btn-locate" class="tb-btn" title="Use GPS location">📍</button>
     <span class="tb-sep"></span>
+    <button id="btn-dark-mode" class="tb-btn" title="Toggle dark mode">🌙</button>
     <button id="btn-logout" class="tb-btn">Sign out</button>
   </div>
   <div id="map-container">
@@ -296,8 +334,14 @@
     <div id="gps-pin-popup">
       <button id="btn-gps-add">📍 Add car here</button>
     </div>
+
+    <!-- Snap chip: shown after /check resolves a segment -->
+    <div id="snap-chip"></div>
   </div>
 </div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
 
 <!-- ══════════════════ INLINE NAME PANEL ══════════════════ -->
 <div id="name-panel">
@@ -312,6 +356,7 @@
 
 <script>
 // ── Config ────────────────────────────────────────────────────────────────────
+const DEV_MODE      = window.DEV_MODE === true || window.DEV_MODE === 'true';
 const SUPABASE_URL  = window.SUPABASE_URL  || 'https://bebepoowtumqmzwlydeu.supabase.co';
 const SUPABASE_ANON = window.SUPABASE_ANON || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJlYmVwb293dHVtcW16d2x5ZGV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MDg2ODEsImV4cCI6MjA4OTE4NDY4MX0.BHZ2EiFN1-GiM7QEsxnqMB8oVI1Jzl1LH3D-y230nk4';
 
@@ -379,16 +424,57 @@ const btnNpSave      = document.getElementById('btn-np-save');
 const customHoverEl  = document.getElementById('custom-hover');
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
-sb.auth.getSession().then(({ data }) => {
-  session = data.session;
-  session ? initApp() : showAuth();
-});
-sb.auth.onAuthStateChange((_e, s) => {
-  const wasNull = !session;
-  session = s;
-  if (s && wasNull) initApp();
-  if (!s) showAuth();
-});
+function _saveTokens(access, refresh) {
+  localStorage.setItem('bb_access',  access);
+  localStorage.setItem('bb_refresh', refresh);
+  session = { access_token: access };
+}
+
+function _clearTokens() {
+  localStorage.removeItem('bb_access');
+  localStorage.removeItem('bb_refresh');
+  session = null;
+}
+
+async function _tryRefresh() {
+  const rt = localStorage.getItem('bb_refresh');
+  if (!rt) return false;
+  try {
+    const res = await fetch('/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: rt }),
+    });
+    if (!res.ok) { _clearTokens(); return false; }
+    const data = await res.json();
+    _saveTokens(data.access_token, data.refresh_token);
+    return true;
+  } catch (_) { return false; }
+}
+
+if (DEV_MODE) {
+  session = { access_token: 'dev-token' };
+  initApp();
+} else {
+  const stored = localStorage.getItem('bb_access');
+  if (stored) {
+    session = { access_token: stored };
+    // Validate by attempting a prefs fetch; if 401 try refresh.
+    fetch('/prefs', { headers: { Authorization: `Bearer ${stored}` } }).then(async r => {
+      if (r.status === 401) {
+        const ok = await _tryRefresh();
+        ok ? initApp() : showAuth();
+      } else {
+        initApp();
+      }
+    }).catch(() => showAuth());
+  } else {
+    showAuth();
+  }
+}
+
+// Auto-refresh access token 1 min before expiry (every 14 min).
+setInterval(async () => { if (session && !DEV_MODE) await _tryRefresh(); }, 14 * 60 * 1000);
 
 function showAuth() {
   authScreen.style.display = 'flex';
@@ -439,31 +525,85 @@ async function login() {
   authError.textContent = '';
   btnLogin.disabled = true;
   btnLogin.innerHTML = '<span class="spinner"></span>Signing in…';
-  const { error } = await sb.auth.signInWithPassword({ email: emailEl.value.trim(), password: passwordEl.value });
-  btnLogin.disabled = false;
-  btnLogin.textContent = 'Sign in';
-  if (error) authError.textContent = error.message;
+  try {
+    const res = await fetch('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: emailEl.value.trim(), password: passwordEl.value }),
+    });
+    const data = await res.json();
+    if (!res.ok) { authError.textContent = data.detail || 'Sign in failed'; return; }
+    _saveTokens(data.access_token, data.refresh_token);
+    initApp();
+  } catch (e) {
+    authError.textContent = 'Network error — is the server running?';
+  } finally {
+    btnLogin.disabled = false;
+    btnLogin.textContent = 'Sign in';
+  }
 }
 
 async function signup() {
   authError.textContent = '';
   btnSignup.disabled = true;
   btnSignup.innerHTML = '<span class="spinner"></span>Creating account…';
-  const { error } = await sb.auth.signUp({ email: emailEl.value.trim(), password: passwordEl.value });
-  btnSignup.disabled = false;
-  btnSignup.textContent = 'Create account';
-  if (error) {
-    authError.textContent = error.message;
-  } else {
-    authError.style.color = '#16a34a';
-    authError.textContent = 'Check your email to confirm, then sign in.';
+  try {
+    const res = await fetch('/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: emailEl.value.trim(), password: passwordEl.value }),
+    });
+    const data = await res.json();
+    if (!res.ok) { authError.textContent = data.detail || 'Registration failed'; return; }
+    _saveTokens(data.access_token, data.refresh_token);
+    initApp();
+  } catch (e) {
+    authError.textContent = 'Network error — is the server running?';
+  } finally {
+    btnSignup.disabled = false;
+    btnSignup.textContent = 'Create account';
   }
 }
 
 btnLogin.addEventListener('click', login);
 btnSignup.addEventListener('click', signup);
 [emailEl, passwordEl].forEach(el => el.addEventListener('keydown', e => { if (e.key === 'Enter') login(); }));
-btnLogout.addEventListener('click', () => sb.auth.signOut());
+btnLogout.addEventListener('click', () => { _clearTokens(); showAuth(); });
+
+// ── Toast notifications ────────────────────────────────────────────────────────
+const _toastContainer = document.getElementById('toast-container');
+function showToast(msg, isError = false) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (isError ? ' error' : '');
+  el.textContent = msg;
+  _toastContainer.appendChild(el);
+  setTimeout(() => el.remove(), 3100);
+}
+
+// ── Dark mode ─────────────────────────────────────────────────────────────────
+const _btnDark = document.getElementById('btn-dark-mode');
+function _applyDark(on) {
+  document.body.classList.toggle('dark', on);
+  _btnDark.textContent = on ? '☀️' : '🌙';
+  localStorage.setItem('bb_dark', on ? '1' : '0');
+}
+(function _initDark() {
+  const stored = localStorage.getItem('bb_dark');
+  const prefer = stored !== null ? stored === '1' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  _applyDark(prefer);
+})();
+_btnDark.addEventListener('click', () => _applyDark(!document.body.classList.contains('dark')));
+
+// ── Snap chip ─────────────────────────────────────────────────────────────────
+const _snapChip = document.getElementById('snap-chip');
+function showSnap(snap) {
+  if (!snap) { _snapChip.classList.remove('visible'); return; }
+  const dist = snap.distance_m < 1 ? '<1 m' : `${snap.distance_m} m`;
+  _snapChip.textContent = snap.is_polygon
+    ? `📍 Zone: ${snap.street_name}`
+    : `📍 ${snap.street_name} — ${dist}`;
+  _snapChip.classList.add('visible');
+}
 
 // ── Map init ──────────────────────────────────────────────────────────────────
 function initMap(center) {
@@ -1062,6 +1202,7 @@ async function checkCarWithRender(car) {
     const data = await res.json();
     carSchedules[car.id] = data;
     renderZones(data.geojson);
+    showSnap(data.snap || null);
     if (map) map.jumpTo({ center: [car.lon, car.lat], zoom: 16 });
     updateCarMarkers();
     updateStatusFromSchedules();
@@ -1383,7 +1524,7 @@ function renderCarsPanel() {
         setNearestRegion(lat, lon); setLocationKnown('gps', lat, lon);
         if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
         await checkCarWithRender(car);
-      }, msg => { btn.disabled = false; btn.textContent = '📍 GPS'; alert(`GPS: ${msg}`); });
+      }, msg => { btn.disabled = false; btn.textContent = '📍 GPS'; showToast(`GPS: ${msg}`, true); });
     });
 
     // ── Set location button ──
@@ -1439,7 +1580,7 @@ document.getElementById('btn-locate').addEventListener('click', () => {
       updateCarMarkers();
     }, 15000);
     for (const car of cars) checkCarSilently(car);
-  }, msg => { btn.disabled = false; btn.textContent = '📍'; alert(`GPS: ${msg}`); });
+  }, msg => { btn.disabled = false; btn.textContent = '📍'; showToast(`GPS: ${msg}`, true); });
 });
 
 function setStatus(cls, text) { statusText.className = cls; statusText.textContent = text; }

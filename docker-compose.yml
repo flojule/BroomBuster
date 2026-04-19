@@ -1,0 +1,59 @@
+services:
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+  api:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Generate once: python -c "import secrets; print(secrets.token_hex(32))"
+      JWT_SECRET:     ${JWT_SECRET:?JWT_SECRET must be set}
+      REFRESH_SECRET: ${REFRESH_SECRET:-}
+      DB_PATH:        /data/app.sqlite
+      LOG_LEVEL:      ${LOG_LEVEL:-INFO}
+      # Set to "true" only for local dev — skips auth on both API and frontend.
+      DEV_MODE:       ${DEV_MODE:-false}
+      # Preload this region at boot so the first /check is instant (Pi use).
+      PRELOAD_REGION: ${PRELOAD_REGION:-}
+    volumes:
+      - app_data:/data
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # broombuster-notify is defined here but disabled until M4.
+  # Uncomment and configure VAPID_* env vars when push notifications are ready.
+  # notify:
+  #   build:
+  #     context: .
+  #     dockerfile: notify/Dockerfile
+  #   restart: unless-stopped
+  #   environment:
+  #     DB_PATH:           /data/app.sqlite
+  #     VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+  #     VAPID_PUBLIC_KEY:  ${VAPID_PUBLIC_KEY:-}
+  #     VAPID_SUBJECT:     ${VAPID_SUBJECT:-mailto:admin@example.com}
+  #   volumes:
+  #     - app_data:/data
+
+volumes:
+  app_data:
+  caddy_data:
+  caddy_config:

@@ -4,12 +4,12 @@ nearest segment's persisted `STREET_DISPLAY` (prevents mismatch between
 car card and map hover labels).
 
 These tests run the FastAPI app with `DEV_MODE=1` so authentication is
-skipped and network lookups are mocked for determinism.
+skipped.  Since M2 removed the Nominatim call from the critical path, the
+address is derived purely from the resolved segment — no network mocks needed.
 """
 import os
 os.environ.setdefault("DEV_MODE", "1")
 
-import json
 import pytest
 from fastapi.testclient import TestClient
 
@@ -35,7 +35,7 @@ def _nearest_row_for_point(gdf_3857, lat, lon):
     return best_row
 
 
-def test_api_check_address_matches_street_display(monkeypatch):
+def test_api_check_address_matches_street_display():
     # Choose a point known to be in the bay area dataset
     lat, lon = 37.821326, -122.280705  # Chestnut St, Oakland (used in other tests)
 
@@ -49,12 +49,7 @@ def test_api_check_address_matches_street_display(monkeypatch):
     if not row_display:
         pytest.skip("Nearest segment has no display/name")
 
-    # Import the app after setting DEV_MODE so deps.verify_jwt bypasses auth.
     import api.api as api_mod
-
-    # Monkeypatch reverse-geocode + nearby-streets functions used by the endpoint
-    monkeypatch.setattr(api_mod.gps_module, "get_street_info", lambda car: (row_display, None))
-    monkeypatch.setattr(api_mod.gps_module, "get_nearby_streets_from_gdf", lambda lat_, lon_, gdf: [(row_display, 0.0)])
 
     # Use context manager so FastAPI lifespan startup runs (loads cities).
     with TestClient(api_mod.app) as client:
@@ -64,7 +59,8 @@ def test_api_check_address_matches_street_display(monkeypatch):
     data = resp.json()
 
     addr = data.get("address") or ""
-    # Compare canonical keys so the assertion tolerates minor punctuation/casing
+    # Address is now derived directly from the resolved segment — compare
+    # canonical keys to tolerate minor punctuation/casing differences.
     assert normalize.street_name(addr) == normalize.street_name(row_display), (
         f"API address {addr!r} does not match STREET_DISPLAY {row_display!r}"
     )
