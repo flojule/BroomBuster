@@ -146,6 +146,33 @@ uvicorn broombuster.api.app:app --host 0.0.0.0 --port $PORT
 
 ---
 
+## Continuous integration & delivery
+
+Two GitHub Actions workflows live in [`.github/workflows/`](.github/workflows):
+
+| Workflow | Trigger | What it does |
+|----------|---------|--------------|
+| `ci.yml` | every PR + push to `main` | `ruff check` + full `pytest` on Python 3.12 |
+| `docker-publish.yml` | push to `main`, `v*` tags, manual | builds the `amd64` + `arm64` image and pushes it to GHCR (`ghcr.io/<owner>/broombuster`) |
+
+Pull a published image:
+
+```bash
+docker pull ghcr.io/<owner>/broombuster:latest   # or :v1.2.3, :main
+```
+
+**Set up separately** (the workflows don't and can't do these):
+
+- **GHCR visibility** — the first push creates a *private* package. Make it
+  public (or grant pulls) in the repo's *Packages* settings if your deploy host
+  pulls anonymously.
+- **Actual deployment** — CI/CD here builds and tests; it does **not** deploy.
+  The public targets (`funnel.sh`, the Pi `systemd` unit) are self-hosted and
+  pull/run the image or source themselves. Wiring auto-deploy would need either
+  a self-hosted runner on that box or an SSH-deploy step with host secrets.
+- **Runtime secrets** stay on the host, never in the repo: `JWT_SECRET`,
+  `ALLOW_REGISTRATION=false`, and the shared-account `SEED_PASSWORD`.
+
 ## Project layout
 
 ```

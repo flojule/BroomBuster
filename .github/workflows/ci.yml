@@ -1,0 +1,41 @@
+name: CI
+
+# Lint + test on every push to main and every pull request.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref so a force-push doesn't pile up jobs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install (api + dev extras)
+        run: pip install -e '.[api,dev]'
+
+      - name: Ruff (lint)
+        run: ruff check .
+
+      - name: Pytest
+        # conftest.py forces DEV_MODE=1 and PMTILES_MODE=0, so no JWT_SECRET is
+        # needed. DB_PATH points at a throwaway file so the runtime SQLite DB
+        # is never written into the checked-out tree.
+        env:
+          DB_PATH: ${{ runner.temp }}/app.sqlite
+        run: pytest -q
