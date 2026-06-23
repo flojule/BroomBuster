@@ -783,6 +783,12 @@ _DEV_MODE_API = os.environ.get("DEV_MODE", "").lower() in ("1", "true", "yes")
 # (frontend/tiles/*.pmtiles) and slim /check to resolver fields. Set
 # PMTILES_MODE=0 to fall back to the legacy server-built GeoJSON path.
 _PMTILES_MODE = os.environ.get("PMTILES_MODE", "1").lower() in ("1", "true", "yes")
+# Whether the frontend should show the "Create account" button. Mirrors the
+# server-side ALLOW_REGISTRATION gate in auth.py so a disabled signup hides the
+# button rather than letting it 403 on click.
+_ALLOW_REGISTRATION_API = os.environ.get("ALLOW_REGISTRATION", "true").lower() in (
+    "1", "true", "yes"
+)
 
 
 @app.get("/config.js", include_in_schema=False)
@@ -791,6 +797,7 @@ def config_js():
     js = (
         f"window.DEV_MODE = {'true' if _DEV_MODE_API else 'false'};\n"
         f"window.PMTILES_MODE = {'true' if _PMTILES_MODE else 'false'};\n"
+        f"window.ALLOW_REGISTRATION = {'true' if _ALLOW_REGISTRATION_API else 'false'};\n"
         "window.REGION_TZ = " + json.dumps(
             {rk: rv.get("tz", "UTC") for rk, rv in REGIONS.items()}
         ) + ";\n"

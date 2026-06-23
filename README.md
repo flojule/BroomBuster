@@ -89,6 +89,39 @@ laptop share one saved-car set) and fronts it with `tailscale serve` at
 | Access control | App binds localhost only; tailnet device auth is the gate. |
 | Prereq | HTTPS + MagicDNS enabled in the [admin console](https://login.tailscale.com/admin/dns). |
 
+### Public web address (Tailscale Funnel)
+
+```bash
+sudo tailscale up         # once: connect this machine to your tailnet
+./funnel.sh               # public HTTPS at https://<machine>.<tailnet>.ts.net
+```
+
+`./funnel.sh` publishes the app to the **public internet** via `tailscale
+funnel`, so anyone with the URL can use it — no Tailscale account required on
+their end. Unlike `./deploy.sh` it runs with real auth (not `DEV_MODE`):
+
+| Aspect | Behaviour |
+|--------|-----------|
+| Guests (no login) | Anyone can browse the map and add cars/houses. Guest data stays in that browser, per device (cleared when the tab closes). |
+| Shared account | One seeded login you can hand out "if needed". Everyone signed into it shares one server-saved set of cars/homes. |
+| Self-registration | **Disabled** (`ALLOW_REGISTRATION=false`) so random visitors can't create accounts. |
+| Secret | A random `JWT_SECRET` is generated once and saved to `.env` (gitignored). |
+
+**Seed / reset the shared account** (run on the server, against the same DB):
+
+```bash
+SEED_EMAIL=share@broombuster SEED_PASSWORD='a-strong-passphrase' \
+  python scripts/seed_account.py     # omit SEED_PASSWORD to auto-generate one
+```
+
+`funnel.sh` runs this for you on startup. Funnel requires HTTPS + MagicDNS and
+the `funnel` node attribute in your tailnet ACL —
+see [Tailscale Funnel docs](https://tailscale.com/kb/1223/funnel).
+
+> The same guest-first, shared-account, signup-disabled model works on the
+> Docker + Caddy stack below: set `ALLOW_REGISTRATION=false` and seed the
+> account inside the `api` container.
+
 ### Always-on Raspberry Pi 5 (Ubuntu 24.04)
 
 Same no-login Tailscale-HTTPS model under `systemd`, surviving reboots. Setup,
@@ -112,6 +145,33 @@ uvicorn broombuster.api.app:app --host 0.0.0.0 --port $PORT
 ```
 
 ---
+
+## Continuous integration & delivery
+
+Two GitHub Actions workflows live in [`.github/workflows/`](.github/workflows):
+
+| Workflow | Trigger | What it does |
+|----------|---------|--------------|
+| `ci.yml` | every PR + push to `main` | `ruff check` + full `pytest` on Python 3.12 |
+| `docker-publish.yml` | push to `main`, `v*` tags, manual | builds the `amd64` + `arm64` image and pushes it to GHCR (`ghcr.io/<owner>/broombuster`) |
+
+Pull a published image:
+
+```bash
+docker pull ghcr.io/<owner>/broombuster:latest   # or :v1.2.3, :main
+```
+
+**Set up separately** (the workflows don't and can't do these):
+
+- **GHCR visibility** — the first push creates a *private* package. Make it
+  public (or grant pulls) in the repo's *Packages* settings if your deploy host
+  pulls anonymously.
+- **Actual deployment** — CI/CD here builds and tests; it does **not** deploy.
+  The public targets (`funnel.sh`, the Pi `systemd` unit) are self-hosted and
+  pull/run the image or source themselves. Wiring auto-deploy would need either
+  a self-hosted runner on that box or an SSH-deploy step with host secrets.
+- **Runtime secrets** stay on the host, never in the repo: `JWT_SECRET`,
+  `ALLOW_REGISTRATION=false`, and the shared-account `SEED_PASSWORD`.
 
 ## Project layout
 
