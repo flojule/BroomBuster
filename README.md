@@ -89,6 +89,39 @@ laptop share one saved-car set) and fronts it with `tailscale serve` at
 | Access control | App binds localhost only; tailnet device auth is the gate. |
 | Prereq | HTTPS + MagicDNS enabled in the [admin console](https://login.tailscale.com/admin/dns). |
 
+### Public web address (Tailscale Funnel)
+
+```bash
+sudo tailscale up         # once: connect this machine to your tailnet
+./funnel.sh               # public HTTPS at https://<machine>.<tailnet>.ts.net
+```
+
+`./funnel.sh` publishes the app to the **public internet** via `tailscale
+funnel`, so anyone with the URL can use it — no Tailscale account required on
+their end. Unlike `./deploy.sh` it runs with real auth (not `DEV_MODE`):
+
+| Aspect | Behaviour |
+|--------|-----------|
+| Guests (no login) | Anyone can browse the map and add cars/houses. Guest data stays in that browser, per device (cleared when the tab closes). |
+| Shared account | One seeded login you can hand out "if needed". Everyone signed into it shares one server-saved set of cars/homes. |
+| Self-registration | **Disabled** (`ALLOW_REGISTRATION=false`) so random visitors can't create accounts. |
+| Secret | A random `JWT_SECRET` is generated once and saved to `.env` (gitignored). |
+
+**Seed / reset the shared account** (run on the server, against the same DB):
+
+```bash
+SEED_EMAIL=share@broombuster SEED_PASSWORD='a-strong-passphrase' \
+  python scripts/seed_account.py     # omit SEED_PASSWORD to auto-generate one
+```
+
+`funnel.sh` runs this for you on startup. Funnel requires HTTPS + MagicDNS and
+the `funnel` node attribute in your tailnet ACL —
+see [Tailscale Funnel docs](https://tailscale.com/kb/1223/funnel).
+
+> The same guest-first, shared-account, signup-disabled model works on the
+> Docker + Caddy stack below: set `ALLOW_REGISTRATION=false` and seed the
+> account inside the `api` container.
+
 ### Always-on Raspberry Pi 5 (Ubuntu 24.04)
 
 Same no-login Tailscale-HTTPS model under `systemd`, surviving reboots. Setup,

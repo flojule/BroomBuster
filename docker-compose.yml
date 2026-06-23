@@ -25,6 +25,9 @@ services:
       LOG_LEVEL:      ${LOG_LEVEL:-INFO}
       # Set to "true" only for local dev — skips auth on both API and frontend.
       DEV_MODE:       ${DEV_MODE:-false}
+      # Set to "false" for a public deploy: disables self-registration so only
+      # the seeded shared account (scripts/seed_account.py) and guests exist.
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
       # Preload this region at boot so the first /check is instant (Pi use).
       PRELOAD_REGION: ${PRELOAD_REGION:-}
     volumes:

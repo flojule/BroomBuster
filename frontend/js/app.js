@@ -308,6 +308,13 @@ async function signup() {
   }
 }
 
+// Registration may be locked on public deploys (shared account only). The
+// server advertises this via window.ALLOW_REGISTRATION; hide the signup button
+// so guests only see "Sign in". Defaults to shown when the flag is absent.
+const ALLOW_REGISTRATION =
+  window.ALLOW_REGISTRATION !== false && window.ALLOW_REGISTRATION !== 'false';
+if (!ALLOW_REGISTRATION) btnSignup.hidden = true;
+
 btnLogin.addEventListener('click', login);
 btnSignup.addEventListener('click', signup);
 [emailEl, passwordEl].forEach(el => el.addEventListener('keydown', e => { if (e.key === 'Enter') login(); }));

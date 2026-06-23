@@ -61,6 +61,14 @@ _REFRESH_TTL_DAYS    = 30
 _AUD_ACCESS          = "broombuster"
 _AUD_REFRESH         = "broombuster-refresh"
 
+# Public deploys (e.g. Tailscale Funnel) lock self-registration so random
+# visitors can't create accounts; the shared account is seeded server-side via
+# scripts/seed_account.py instead. Defaults to enabled so existing dev / Pi
+# deploys keep their open sign-up. Set ALLOW_REGISTRATION=false to disable.
+_ALLOW_REGISTRATION = os.environ.get("ALLOW_REGISTRATION", "true").lower() in (
+    "1", "true", "yes"
+)
+
 # ---------------------------------------------------------------------------
 # Rate limiting — slowapi; disabled when slowapi is absent or in DEV_MODE
 # ---------------------------------------------------------------------------
@@ -222,6 +230,8 @@ def _token_response(user_id: str) -> dict:
 @router.post("/register")
 @_maybe_limit
 def register(req: RegisterRequest, request: Request):
+    if not _ALLOW_REGISTRATION:
+        raise HTTPException(status_code=403, detail="Registration is disabled")
     existing = db.get_user_by_email(req.email)
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
