@@ -18,7 +18,11 @@ from broombuster.domains import DomainPlugin
 from broombuster.domains.trash import ReCollectTrashPlugin
 
 _TZ = ZoneInfo("America/Los_Angeles")
-_TODAY = datetime.date.today()
+# Anchor "today" to the same timezone the /check-home endpoint resolves urgency
+# in (bay_area -> America/Los_Angeles). Using date.today() (the runner's local
+# date, UTC in CI) makes the urgency assertions flaky when the runner's date and
+# the Pacific date differ — i.e. CI runs between ~00:00 and 08:00 UTC.
+_TODAY = datetime.datetime.now(_TZ).date()
 _TOMORROW = _TODAY + datetime.timedelta(days=1)
 _AFTER = _TODAY + datetime.timedelta(days=3)
 _NOW = datetime.datetime.combine(_TODAY, datetime.time(7, 0), tzinfo=_TZ)
