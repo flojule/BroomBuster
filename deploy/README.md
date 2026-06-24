@@ -13,6 +13,9 @@ first run, which the unit reads via `EnvironmentFile`. The runtime DB
 | `install-service.sh` | Pi | Install + enable the systemd service for the current user |
 | `broombuster.service` | Pi | systemd unit template (`__USER__`/`__REPO__` substituted on install) |
 | `update.sh` | Pi | Roll out a new version: pull + reinstall + restart |
+| `install-autoupdate.sh` | Pi | (Optional) install the poll-and-deploy timer |
+| `auto-update.sh` | Pi | Poll origin; run `update.sh` only when the branch advanced |
+| `broombuster-update.{service,timer}` | Pi | systemd timer that runs `auto-update.sh` every ~2 min |
 
 ## One-time setup
 
@@ -41,14 +44,36 @@ tailscale serve status
 
 URL: `https://<pi-name>.tailf5051f.ts.net` (the Pi's own MagicDNS name).
 
+For **off-VPN / public** access use Funnel instead of Serve (persists across
+reboots; run once, not per update):
+```bash
+tailscale funnel --bg 8000
+tailscale funnel status
+```
+Don't use `./funnel.sh` for always-on — it runs in the foreground and resets the
+Funnel mapping on exit.
+
+**4. (Optional) auto-deploy on push** — a timer that polls `origin` every ~2 min
+and rolls out only when the tracked branch advances (idle polls don't restart
+the app):
+```bash
+./deploy/install-autoupdate.sh
+```
+It writes a minimal sudoers drop-in granting the timer's user passwordless
+`systemctl restart broombuster` (the one privileged step in `update.sh`), then
+enables `broombuster-update.timer`. With this on, you never run `update.sh` by
+hand — just push to the branch the Pi tracks.
+
 ## Operations
 
 | Action | Command (on the Pi) |
 |--------|---------------------|
-| Roll out a new version | `./deploy/update.sh` (pull + reinstall + restart + health) |
+| Roll out a new version | `./deploy/update.sh` (pull + reinstall + restart + health) — not needed if the auto-update timer is on |
 | Status / logs | `systemctl status broombuster` / `journalctl -u broombuster -f` |
 | Restart | `sudo systemctl restart broombuster` |
 | Stop / disable | `sudo systemctl disable --now broombuster` |
-| Refresh map data | commit + push the rebuilt `.fgb`/tiles, then `./deploy/update.sh` |
+| Refresh map data | commit + push the rebuilt `.fgb`/tiles (auto-update rolls it out, or run `./deploy/update.sh`) |
+| Auto-update logs | `journalctl -u broombuster-update -f`; next run: `systemctl list-timers broombuster-update.timer` |
+| Disable auto-update | `sudo systemctl disable --now broombuster-update.timer` |
 
 Service auto-starts at boot and restarts on crash; `tailscale serve` persists across reboots.

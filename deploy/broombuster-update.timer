@@ -1,0 +1,14 @@
+# systemd timer: poll for updates ~every 2 minutes. Pairs with
+# broombuster-update.service. New commits land within the interval; idle polls
+# do nothing. Persistent=true catches up one missed run after downtime.
+[Unit]
+Description=Poll for BroomBuster updates every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+RandomizedDelaySec=20
+Persistent=true
+
+[Install]
+WantedBy=timers.target
