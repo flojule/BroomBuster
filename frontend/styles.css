@@ -392,3 +392,20 @@
       box-shadow: 0 0 0 2px rgba(255,255,255,.9), 0 0 0 3.5px var(--blue);
     }
     body.dark #center-crosshair.placing { box-shadow: 0 0 0 2px rgba(0,0,0,.6), 0 0 0 3.5px var(--blue); }
+
+    /* ── Desktop: dock cars/homes as a narrow panel on the right instead of a
+       bottom-center sheet, so it doesn't eat center space and isn't too wide.
+       The center band returns to the bottom (nothing to clear) and stays
+       visible while the panel is open (they no longer overlap). ── */
+    @media (min-width: 768px) {
+      #sheet {
+        left: auto; right: 12px; bottom: auto; top: 12px;
+        transform: none; width: 300px; max-height: calc(100% - 24px);
+        border: 1px solid var(--border); border-radius: 12px;
+        box-shadow: 0 4px 16px rgba(0,0,0,.18);
+      }
+      #sheet-grip { display: none; }            /* bottom-sheet drag affordance */
+      #sheet-handle { padding-top: 8px; }
+      #snap-chip { bottom: 12px; }
+      body.sheet-expanded #snap-chip.visible { display: flex; }
+    }
