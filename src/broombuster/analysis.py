@@ -615,6 +615,28 @@ def _code_ordinals(code: str) -> set:
     return {int(ch) for ch in m.group(1)} if m else set()
 
 
+def _contiguous_runs(ranks):
+    """Split sorted weekday ranks into runs of consecutive days ([0,1,2,4] ->
+    [[0,1,2],[4]])."""
+    runs, cur = [], []
+    for r in ranks:
+        if cur and r == cur[-1] + 1:
+            cur.append(r)
+        else:
+            if cur:
+                runs.append(cur)
+            cur = [r]
+    if cur:
+        runs.append(cur)
+    return runs
+
+
+def _weekday_range_body(label, time) -> str:
+    """'<label>, <time>' line for a collapsed weekday range / 'Every day'."""
+    t = normalize.time_display(time or "")
+    return f"{label}, {t}" if t and t != "N/A" else label
+
+
 def format_schedule_side(entries, local_now=None) -> list:
     """Canonical display lines for one side's (code, desc, time) entries.
 
@@ -650,14 +672,38 @@ def format_schedule_side(entries, local_now=None) -> list:
         g["ords"] |= _code_ordinals(code)
         g["items"].append((desc, time))
 
+    # A group recurs "every week" when it carries no ordinal qualifier (plain
+    # weekday code) or covers all four ordinals (1st&3rd + 2nd&4th). Every-week
+    # groups that share one time across a contiguous run of 3+ weekdays collapse
+    # into a single "Mon–Fri, <time>" line (all seven days -> "Every day,
+    # <time>"); shorter runs and partial-ordinal groups stay one line per day.
     ranked: list = []  # (rank, ord_key, body)
-    for (rank, _td), g in groups.items():
-        if {1, 2, 3, 4} <= g["ords"]:
-            ranked.append((rank, -1, normalize.sweep_body(f"Every {g['disp']}", g["time"])))
+    everyweek: dict = {}  # time_display -> {"time": raw, "days": {rank: (disp, fallback)}}
+    for (rank, td), g in groups.items():
+        if (not g["ords"]) or ({1, 2, 3, 4} <= g["ords"]):
+            if {1, 2, 3, 4} <= g["ords"]:
+                fallback = normalize.sweep_body(f"Every {g['disp']}", g["time"])
+            else:
+                fallback = normalize.sweep_body(g["items"][0][0], g["items"][0][1])
+            slot = everyweek.setdefault(td, {"time": g["time"], "days": {}})
+            slot["days"][rank] = (g["disp"], fallback)
         else:
             for desc, time in g["items"]:
-                body = normalize.sweep_body(desc, time)
-                ranked.append((rank, 0, body))
+                ranked.append((rank, 0, normalize.sweep_body(desc, time)))
+
+    for _td, slot in everyweek.items():
+        days = slot["days"]
+        ord_ranks = sorted(days)
+        if len(ord_ranks) == 7:
+            ranked.append((0, -1, _weekday_range_body("Every day", slot["time"])))
+            continue
+        for run in _contiguous_runs(ord_ranks):
+            if len(run) >= 3:
+                label = f"{days[run[0]][0]}–{days[run[-1]][0]}"
+                ranked.append((run[0], -1, _weekday_range_body(label, slot["time"])))
+            else:
+                for r in run:
+                    ranked.append((r, -1, days[r][1]))
     ranked.sort(key=lambda x: (x[0], x[1]))
 
     lines: list = []

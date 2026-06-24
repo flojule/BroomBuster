@@ -273,8 +273,16 @@
 
   // ── Canonical schedule display (mirror normalize.sweep_body + ───────────────
   //    analysis.format_schedule_side). Keeps card/hover identical to the server.
-  var TIME_RANGE_RE_G =
-    /(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*(?:[-–—]|to)\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/ig;
+  // Display parsing is LENIENT (mirror normalize._TIME_RANGE_RE): tolerates the
+  // PDF artifacts in raw tile data — bullet/middot/"o" separators, stray spaces
+  // inside hours/minutes and around colons, "A M"/"P,M". (Urgency timing stays
+  // on the strict TIME_RANGE_RE above, mirroring analysis._TIME_RANGE_RE.)
+  var _DISP_SRC =
+    '(\\d\\s*\\d?)\\s*(?::\\s*(\\d\\s*\\d))?\\s*(A[\\s,]*M|P[\\s,]*M)' +
+    '[\\s,]*(?:[-–—•·o]|to)\\s*' +
+    '(\\d\\s*\\d?)\\s*(?::\\s*(\\d\\s*\\d))?\\s*(A[\\s,]*M|P[\\s,]*M)';
+  var TIME_RANGE_DISP_RE   = new RegExp(_DISP_SRC, 'i');
+  var TIME_RANGE_DISP_RE_G = new RegExp(_DISP_SRC, 'ig');
   var WEEKDAY_CANON = {
     MON: [0, 'Mon'], MONDAY: [0, 'Mon'],
     TUE: [1, 'Tue'], TUES: [1, 'Tue'], TUESDAY: [1, 'Tue'],
@@ -289,18 +297,24 @@
     ['W', [2, 'Wed']], ['F', [4, 'Fri']], ['S', [5, 'Sat']],
   ];
 
+  // Mirror normalize._digits_only / _fmt_part: strip stray spaces from a
+  // captured digit/AMPM group before formatting.
+  function _digitsOnly(s) { return s ? s.replace(/\s+/g, '') : s; }
+  function _fmtPart(h, mn, ap) {
+    ap = ap.replace(/[\s,]+/g, '').toUpperCase();
+    h = _digitsOnly(h) || h;
+    mn = _digitsOnly(mn);
+    var m = mn ? parseInt(mn, 10) : 0;
+    return m ? (parseInt(h, 10) + ':' + (m < 10 ? '0' + m : m) + ap)
+             : (parseInt(h, 10) + ap);
+  }
   function timeDisplay(raw) {
     if (typeof raw !== 'string') return 'N/A';
     var s = raw.trim();
     if (s === '' || /^(n\/a|none|nan)$/i.test(s)) return 'N/A';
-    TIME_RANGE_RE.lastIndex = 0;
-    var m = TIME_RANGE_RE.exec(s);
+    var m = TIME_RANGE_DISP_RE.exec(s);
     if (!m) return s;
-    function fp(h, mn, ap) {
-      h = parseInt(h, 10); mn = parseInt(mn || '0', 10); ap = ap.toUpperCase();
-      return mn ? (h + ':' + (mn < 10 ? '0' + mn : mn) + ap) : (h + ap);
-    }
-    return fp(m[1], m[2], m[3]) + '–' + fp(m[4], m[5], m[6]);
+    return _fmtPart(m[1], m[2], m[3]) + '–' + _fmtPart(m[4], m[5], m[6]);
   }
 
   function weekdayFirst(desc) {
@@ -318,14 +332,31 @@
     return (every ? ['Every'] : []).concat([disp]).concat(rest).join(' ').trim();
   }
 
+  // Bare week-of-month ordinal runs (1–5 only) -> "1st & 3rd". Mirrors
+  // normalize._pretty_ordinals. Uses a leading capture instead of lookbehind
+  // for broad mobile-browser support; results are identical.
+  function _prettyOrdinals(text) {
+    return text.replace(/(^|[^\w])([1-5]{1,5})(?![\w])/g, function (_m, pre, run) {
+      var parts = [];
+      for (var i = 0; i < run.length; i++) {
+        var d = run.charAt(i);
+        parts.push(d + (d === '1' ? 'st' : d === '2' ? 'nd' : d === '3' ? 'rd' : 'th'));
+      }
+      var out = parts.length === 1 ? parts[0]
+              : parts.slice(0, -1).join(', ') + ' & ' + parts[parts.length - 1];
+      return pre + out;
+    });
+  }
+
   function sweepBody(desc, time) {
     var d = (typeof desc === 'string') ? desc : '';
-    d = d.replace(/\s*\(every\)/ig, '');
-    d = d.replace(TIME_RANGE_RE_G, '');
+    d = d.replace(/\s*\((?:every|bi-?weekly)\)/ig, '');
+    d = d.replace(TIME_RANGE_DISP_RE_G, '');
     d = d.replace(/\s*\bof\s+(?:the\s+)?month\b/ig, '');
     d = d.replace(/\band\b/ig, '&');
     d = d.replace(/\s+/g, ' ').replace(/^[\s,]+|[\s,]+$/g, '').trim();
     d = weekdayFirst(d);
+    d = _prettyOrdinals(d);
     if (!d || d.toUpperCase() === 'N/A') return '';
     var t = timeDisplay(time || '');
     if (t === '' || t === 'N/A' || d.indexOf(t) !== -1) return d;
@@ -345,6 +376,26 @@
     var s = {};
     if (m) for (var i = 0; i < m[1].length; i++) s[+m[1].charAt(i)] = 1;
     return s;
+  }
+
+  function hasAllFour(ords) {
+    return ords[1] && ords[2] && ords[3] && ords[4];
+  }
+
+  // Split sorted weekday ranks into runs of consecutive days.
+  function contiguousRuns(ranks) {
+    var runs = [], cur = [];
+    for (var i = 0; i < ranks.length; i++) {
+      if (cur.length && ranks[i] === cur[cur.length - 1] + 1) cur.push(ranks[i]);
+      else { if (cur.length) runs.push(cur); cur = [ranks[i]]; }
+    }
+    if (cur.length) runs.push(cur);
+    return runs;
+  }
+
+  function weekdayRangeBody(label, time) {
+    var t = timeDisplay(time || '');
+    return (t && t !== 'N/A') ? (label + ', ' + t) : label;
   }
 
   function _ent(e) {
@@ -376,13 +427,43 @@
       groups[key].items.push(w);
     }
 
+    // Mirror analysis.format_schedule_side: collapse every-week groups that
+    // share one time across a contiguous 3+ weekday run into "Mon–Fri, <time>"
+    // (all seven -> "Every day, <time>"); partial-ordinal groups stay per-day.
     var ranked = [];
+    var everyweek = {};   // td -> {time, days: {rank: [disp, fallback]}}
+    var ewOrder = [];
     for (i = 0; i < order.length; i++) {
       var g = groups[order[i]];
-      if (g.ords[1] && g.ords[2] && g.ords[3] && g.ords[4]) {
-        ranked.push([g.rank, -1, sweepBody('Every ' + g.disp, g.time)]);
+      var ordCount = 0;
+      for (var ok in g.ords) if (g.ords[ok]) ordCount++;
+      if (ordCount === 0 || hasAllFour(g.ords)) {
+        var fallback = hasAllFour(g.ords)
+          ? sweepBody('Every ' + g.disp, g.time)
+          : sweepBody(g.items[0].desc, g.items[0].time);
+        var td = timeDisplay(g.time || '');
+        if (!everyweek[td]) { everyweek[td] = { time: g.time, days: {} }; ewOrder.push(td); }
+        everyweek[td].days[g.rank] = [g.disp, fallback];
       } else {
         for (var j = 0; j < g.items.length; j++) ranked.push([g.rank, 0, sweepBody(g.items[j].desc, g.items[j].time)]);
+      }
+    }
+    for (i = 0; i < ewOrder.length; i++) {
+      var slot = everyweek[ewOrder[i]];
+      var ordRanks = Object.keys(slot.days).map(Number).sort(function (a, b) { return a - b; });
+      if (ordRanks.length === 7) {
+        ranked.push([0, -1, weekdayRangeBody('Every day', slot.time)]);
+        continue;
+      }
+      var runs = contiguousRuns(ordRanks);
+      for (var ri = 0; ri < runs.length; ri++) {
+        var run = runs[ri];
+        if (run.length >= 3) {
+          var label = slot.days[run[0]][0] + '–' + slot.days[run[run.length - 1]][0];
+          ranked.push([run[0], -1, weekdayRangeBody(label, slot.time)]);
+        } else {
+          for (var rr = 0; rr < run.length; rr++) ranked.push([run[rr], -1, slot.days[run[rr]][1]]);
+        }
       }
     }
     ranked.sort(function (a, b) { return (a[0] - b[0]) || (a[1] - b[1]); });

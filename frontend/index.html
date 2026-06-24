@@ -38,7 +38,7 @@
 <!-- ══════════════════ APP SCREEN ══════════════════ -->
 <div id="app-screen">
   <div id="topbar">
-    <span class="app-title">🧹 BroomBuster</span>
+    <span class="app-title" title="BroomBuster">🧹</span>
     <span class="tb-sep"></span>
     <select id="region-select" class="tb-select"></select>
     <span class="tb-sep"></span>
@@ -53,9 +53,11 @@
   <div id="map-container">
     <div id="map"></div>
 
-    <!-- Floating pill shown during tap-to-place mode -->
+    <!-- Floating pill shown during place mode: pan so the center target sits on
+         the spot, then confirm. (Right-click is the desktop alternative.) -->
     <div id="place-banner">
-      <span id="place-banner-text">📍 Tap the map to place your car</span>
+      <span id="place-banner-text">Move the map to aim the target</span>
+      <button id="btn-confirm-place">Place here</button>
       <button id="btn-cancel-place">Cancel</button>
     </div>
 
@@ -65,16 +67,25 @@
       <div class="ctx-item" id="ctx-add-home">🏠 Set home here</div>
     </div>
 
-    <!-- Persistent cars info panel (top-right). Order: legend, home, add-car,
-         then car cards (appended by renderCarsPanel). -->
-    <div id="cars-panel">
-      <div id="map-legend" class="cars-legend">
-        <span style="color:#ef4444">■ Today</span>
-        <span style="color:#f97316">■ Tomorrow</span>
-        <span style="color:#2563eb">■ Clear</span>
+    <!-- Bottom sheet: cars & homes. Collapses to a handle so the map stays
+         clear (and so placement's center target is unobstructed). Body order:
+         legend, home-panel (add-home + home cards), add-car, then car cards
+         (appended by renderCarsPanel). -->
+    <div id="sheet">
+      <div id="sheet-handle" role="button" tabindex="0" aria-label="Toggle cars & homes panel">
+        <span id="sheet-grip"></span>
+        <span id="sheet-summary"></span>
+        <span id="sheet-chevron">▾</span>
       </div>
-      <div id="home-panel"></div>
-      <button id="btn-add-car" class="add-car-btn">+ Add car</button>
+      <div id="cars-panel">
+        <div id="map-legend" class="cars-legend">
+          <span style="color:#ef4444">■ Today</span>
+          <span style="color:#f97316">■ Tomorrow</span>
+          <span style="color:#2563eb">■ Clear</span>
+        </div>
+        <div id="home-panel"></div>
+        <button id="btn-add-car" class="add-car-btn">🚗 Add car</button>
+      </div>
     </div>
 
     <!-- GPS "you are here" pin popup -->

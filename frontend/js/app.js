@@ -101,6 +101,35 @@ const ctxAddHome     = document.getElementById('ctx-add-home');
 const carsPanel      = document.getElementById('cars-panel');
 const homePanel      = document.getElementById('home-panel');
 const customHoverEl  = document.getElementById('custom-hover');
+const sheet          = document.getElementById('sheet');
+const sheetHandle    = document.getElementById('sheet-handle');
+const sheetSummary   = document.getElementById('sheet-summary');
+const btnConfirmPlace = document.getElementById('btn-confirm-place');
+
+// ── Bottom sheet (cars & homes) ───────────────────────────────────────────────
+// Collapses to a handle so the map + placement center-target stay clear. The
+// expanded/collapsed state persists; `body.sheet-expanded` gates the center band.
+let _sheetCollapsed = localStorage.getItem('bb_sheet') === '1';
+function applySheet() {
+  sheet.classList.toggle('collapsed', _sheetCollapsed);
+  document.body.classList.toggle('sheet-expanded', !_sheetCollapsed);
+}
+function setSheetCollapsed(v) {
+  _sheetCollapsed = !!v;
+  localStorage.setItem('bb_sheet', _sheetCollapsed ? '1' : '0');
+  applySheet();
+}
+function updateSheetSummary() {
+  const parts = [];
+  if (cars.length)  parts.push(`🚗 ${cars.length}`);
+  if (homes.length) parts.push(`🏠 ${homes.length}`);
+  sheetSummary.textContent = parts.length ? parts.join('  ·  ') : 'Add a car or home';
+}
+sheetHandle.addEventListener('click', () => setSheetCollapsed(!_sheetCollapsed));
+sheetHandle.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSheetCollapsed(!_sheetCollapsed); }
+});
+applySheet();
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 function _saveTokens(access, refresh) {
@@ -369,36 +398,10 @@ _btnDark.addEventListener('click', () => _applyDark(!document.body.classList.con
 
 // ── Center banner ─────────────────────────────────────────────────────────────
 // Always-on pill that reports the street under the viewport center (the
-// mobile-friendly equivalent of hovering). Same headline format as the old snap
-// chip, plus the schedule lines the hover tooltip shows; one line, tap to expand.
+// mobile-friendly equivalent of hovering). Multi-line: street/zone on line 1,
+// the schedule (even/odd on their own lines) below — same lines the hover shows.
 const _snapChip   = document.getElementById('snap-chip');
 const _crosshair  = document.getElementById('center-crosshair');
-_snapChip.addEventListener('click', () => _snapChip.classList.toggle('expanded'));
-
-// Meters from a {lng,lat} point to a line/multiline geometry; null for polygons.
-// Short-range equirectangular approximation (cos-scaled longitude).
-function _segDistM(p, a, b) {
-  const R = 6371000, rad = Math.PI / 180, k = Math.cos(p.lat * rad);
-  const px = p.lng * rad * k * R, py = p.lat * rad * R;
-  const ax = a[0] * rad * k * R, ay = a[1] * rad * R;
-  const bx = b[0] * rad * k * R, by = b[1] * rad * R;
-  const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
-  let t = L2 ? ((px - ax) * dx + (py - ay) * dy) / L2 : 0;
-  t = Math.max(0, Math.min(1, t));
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
-}
-function _geomDistM(center, geom) {
-  if (!geom) return null;
-  let lines = [];
-  if (geom.type === 'LineString') lines = [geom.coordinates];
-  else if (geom.type === 'MultiLineString') lines = geom.coordinates;
-  else return null;
-  let best = Infinity;
-  for (const line of lines)
-    for (let i = 0; i + 1 < line.length; i++)
-      best = Math.min(best, _segDistM(center, line[i], line[i + 1]));
-  return isFinite(best) ? best : null;
-}
 
 // Query the feature under the viewport center (small pixel box so thin street
 // lines are forgiving on touch). Returns the topmost hit or null.
@@ -426,17 +429,11 @@ function updateCenterBanner() {
   const isPoly = props.render_type === 'polygon';
   const street = props.street || '';
   const lines  = PMTILES_MODE ? tileSchedLines(props) : [];
-  let head;
-  if (isPoly) {
-    head = `📍 Zone: ${esc(street)}`;
-  } else {
-    const d = _geomDistM(map.getCenter(), f.geometry);
-    const dtxt = d == null ? '' : (d < 1 ? '<1 m' : `${Math.round(d)} m`);
-    head = `📍 ${esc(street)}${dtxt ? ' — ' + dtxt : ''}`;
-  }
-  const sched = lines.join('  ·  ');
-  _snapChip.innerHTML = `<span class="sc-head">${head}</span>`
-    + (sched ? `<span class="sc-sched">${sched}</span>` : '');
+  // Line 1: the street/zone (no distance). Following lines: the schedule, one
+  // per line (even/odd already arrive on their own lines from tileSchedLines).
+  const head = isPoly ? `📍 Zone: ${esc(street)}` : `📍 ${esc(street)}`;
+  _snapChip.innerHTML = `<div class="sc-line sc-head">${head}</div>`
+    + lines.map(l => `<div class="sc-line sc-sched">${esc(l)}</div>`).join('');
   _snapChip.classList.add('visible');
 }
 
@@ -640,8 +637,9 @@ function attachMapListeners() {
   // deferred ~280 ms so a double-tap-to-zoom can cancel it (no window flash);
   // placement commits immediately, and a tap while the name box is open cancels it.
   map.on('click', (e) => {
-    if (placingHome) { stopPlacing(); addHome(e.lngLat.lat, e.lngLat.lng); return; }
-    if (placingCar) { commitPlacement(e.lngLat.lat, e.lngLat.lng); return; }
+    // Placement commits via the center target ("Place here") or right-click, not
+    // a stray tap — a tap during place mode is ignored so panning can't misfire.
+    if (placingCar || placingHome) return;
     if (_namePopup) { closeNameBox(); return; }
     if (_tapTimer) clearTimeout(_tapTimer);
     const point = e.point, lngLat = e.lngLat;
@@ -920,6 +918,7 @@ function updateCarMarkers() {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         setSelectedCar(car.id);
+        setSheetCollapsed(false);  // reveal the sheet so the card is visible
         const entry = carsPanel.querySelector(`.car-entry[data-id="${car.id}"]`);
         if (entry) entry.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       });
@@ -1089,7 +1088,7 @@ document.addEventListener('keydown', e => {
   if (_cardDetailCarId)                         { closeCardDetail();  dismissed = true; }
   if (_gpsLocPin)                               { hideGpsPinPopup();  dismissed = true; }
   if (_zonePopup)                               { closeZoneDetail();  dismissed = true; }
-  if (placingCar || placingHome)                { stopPlacing();      dismissed = true; }
+  if (placingCar || placingHome)                { stopPlacing(); setSheetCollapsed(false); dismissed = true; }
   if (dismissed) return;
   if (_selectedCarId) clearCarSelection();
 });
@@ -1349,23 +1348,32 @@ function updateStatusFromSchedules() {
 }
 
 // ── Car placement ─────────────────────────────────────────────────────────────
+// Center-target flow: pan the map so the crosshair sits on the spot, then
+// "Place here" commits at the map center. The sheet collapses so the target is
+// unobstructed. Right-click (desktop) is the alternative for an off-center spot.
+function _beginPlacing() {
+  setSheetCollapsed(true);
+  placeBanner.classList.add('active');
+  _crosshair.classList.add('placing');
+  if (map) map.getCanvas().style.cursor = 'crosshair';
+}
+
 function startPlacing(editCarId = null) {
   placingCar    = true;
   placingHome   = false;
   placingEditId = editCarId;
-  placeBannerText.textContent = '📍 Tap the map to place your car';
-  placeBanner.classList.add('active');
-  if (map) map.getCanvas().style.cursor = 'crosshair';
+  placeBannerText.textContent = editCarId
+    ? '📍 Aim the target, then Place'
+    : '🚗 Aim the target, then Place';
+  _beginPlacing();
 }
 
-// Same tap-to-place flow as a car, for the home pin (top banner + map tap).
 function startPlacingHome() {
   placingHome   = true;
   placingCar    = false;
   placingEditId = null;
-  placeBannerText.textContent = '🏠 Tap the map to place your home';
-  placeBanner.classList.add('active');
-  if (map) map.getCanvas().style.cursor = 'crosshair';
+  placeBannerText.textContent = '🏠 Aim the target, then Place';
+  _beginPlacing();
 }
 
 function stopPlacing() {
@@ -1373,7 +1381,16 @@ function stopPlacing() {
   placingHome   = false;
   placingEditId = null;
   placeBanner.classList.remove('active');
+  _crosshair.classList.remove('placing');
   if (map) map.getCanvas().style.cursor = '';
+}
+
+// Commit at the current map center (the point the crosshair marks).
+function confirmPlacementAtCenter() {
+  if (!map) return;
+  const c = map.getCenter();
+  if (placingHome) { stopPlacing(); addHome(c.lat, c.lng); }
+  else if (placingCar) { commitPlacement(c.lat, c.lng); }
 }
 
 async function commitPlacement(lat, lon) {
@@ -1385,6 +1402,7 @@ async function commitPlacement(lat, lon) {
     if (car) {
       car.lat = lat; car.lon = lon;
       await savePrefs();
+      setSheetCollapsed(false);
       updateCarMarkers();
       checkCarSilently(car);
     }
@@ -1393,9 +1411,10 @@ async function commitPlacement(lat, lon) {
   }
 }
 
-btnCancelPlace.addEventListener('click', stopPlacing);
+btnConfirmPlace.addEventListener('click', confirmPlacementAtCenter);
+btnCancelPlace.addEventListener('click', () => { stopPlacing(); setSheetCollapsed(false); });
 
-// "+ Add car" — enters tap-to-place mode (works on touch where right-click can't).
+// "🚗 Add car" — enters center-target place mode.
 document.getElementById('btn-add-car').addEventListener('click', () => {
   closeNameBox();
   startPlacing(null);
@@ -1482,6 +1501,7 @@ async function savePendingCar() {
   await savePrefs();
   activeCarId = id;
   setNearestRegion(pendingLat, pendingLon);
+  setSheetCollapsed(false);  // reveal the new card
   updateCarMarkers();
   checkCarSilently(cars[cars.length - 1]);
   pendingLat = pendingLon = null;
@@ -1702,6 +1722,7 @@ function renderCarsPanel() {
 
     carsPanel.appendChild(entry);
   });
+  updateSheetSummary();
 }
 
 // ── Homes (residences) — trash/recycling day ───────────────────────────────────
@@ -1775,6 +1796,7 @@ function renderHomePanel() {
 
     homePanel.appendChild(entry);
   });
+  updateSheetSummary();
 }
 
 // Add a home at a coordinate (map tap / right-click). Zone-based trash resolves
@@ -1785,6 +1807,7 @@ async function addHome(lat, lon, address = '') {
   const h = { id: _newId(), lat, lon, address };
   homes.push(h);
   await savePrefs();
+  setSheetCollapsed(false);  // reveal the new home card
   updateHomeMarkers();
   renderHomePanel();
   await checkHome(h.id);
