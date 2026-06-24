@@ -376,7 +376,8 @@ class TestSweepBody:
 
     def test_ordinal_with_letter_suffix_untouched(self):
         # Already-suffixed ordinals must not be mangled.
-        assert normalize.sweep_body("Mon 1st & 3rd of month", "12PM–2PM") == "Mon 1st & 3rd, 12PM–2PM"
+        result = normalize.sweep_body("Mon 1st & 3rd of month", "12PM–2PM")
+        assert result == "Mon 1st & 3rd, 12PM–2PM"
 
     def test_empty_desc(self):
         assert normalize.sweep_body("", "") == ""
