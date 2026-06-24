@@ -118,60 +118,35 @@ SEED_EMAIL=share@broombuster SEED_PASSWORD='a-strong-passphrase' \
 the `funnel` node attribute in your tailnet ACL —
 see [Tailscale Funnel docs](https://tailscale.com/kb/1223/funnel).
 
-> The same guest-first, shared-account, signup-disabled model works on the
-> Docker + Caddy stack below: set `ALLOW_REGISTRATION=false` and seed the
-> account inside the `api` container.
-
 ### Always-on Raspberry Pi 5 (Ubuntu 24.04)
 
 Same no-login Tailscale-HTTPS model under `systemd`, surviving reboots. Setup,
 `update.sh`, and `install-service.sh`: [`deploy/README.md`](deploy/README.md).
 
-### Public domain or LAN (Docker + Caddy)
+### API only (behind your own TLS)
 
-The app is containerised. For HTTPS termination + auto-cert, use Caddy via
-`docker-compose.yml`:
+If you front the app with your own reverse proxy / TLS, run the API directly:
 
-```bash
+```
 JWT_SECRET=$(python -c "import secrets; print(secrets.token_hex(32))") \
-  docker compose up -d
-```
-
-See [`Caddyfile.example`](Caddyfile.example) for public-domain and Tailscale
-variants. Or run the API alone (no TLS):
-
-```
-uvicorn broombuster.api.app:app --host 0.0.0.0 --port $PORT
+  uvicorn broombuster.api.app:app --host 0.0.0.0 --port $PORT
 ```
 
 ---
 
-## Continuous integration & delivery
+## Continuous integration
 
-Two GitHub Actions workflows live in [`.github/workflows/`](.github/workflows):
+One GitHub Actions workflow lives in [`.github/workflows/`](.github/workflows):
 
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
 | `ci.yml` | every PR + push to `main` | `ruff check` + full `pytest` on Python 3.12 |
-| `docker-publish.yml` | push to `main`, `v*` tags, manual | builds the `amd64` + `arm64` image and pushes it to GHCR (`ghcr.io/<owner>/broombuster`) |
 
-Pull a published image:
-
-```bash
-docker pull ghcr.io/<owner>/broombuster:latest   # or :v1.2.3, :main
-```
-
-**Set up separately** (the workflows don't and can't do these):
-
-- **GHCR visibility** — the first push creates a *private* package. Make it
-  public (or grant pulls) in the repo's *Packages* settings if your deploy host
-  pulls anonymously.
-- **Actual deployment** — CI/CD here builds and tests; it does **not** deploy.
-  The public targets (`funnel.sh`, the Pi `systemd` unit) are self-hosted and
-  pull/run the image or source themselves. Wiring auto-deploy would need either
-  a self-hosted runner on that box or an SSH-deploy step with host secrets.
-- **Runtime secrets** stay on the host, never in the repo: `JWT_SECRET`,
-  `ALLOW_REGISTRATION=false`, and the shared-account `SEED_PASSWORD`.
+Deployment is **not** automated: the targets (`funnel.sh`, the Pi `systemd`
+unit) are self-hosted and pull + run the source themselves via
+[`deploy/update.sh`](deploy/update.sh). Runtime secrets stay on the host, never
+in the repo: `JWT_SECRET`, `ALLOW_REGISTRATION=false`, and the shared-account
+`SEED_PASSWORD`.
 
 ## Project layout
 
@@ -219,7 +194,6 @@ BroomBuster/
 ├── documentation/
 │   ├── performance_plan.md        Shipped map-speed optimisations + remaining map-speed work
 │   └── feature_plan.md            Remaining feature work (trash domain, frontend modules, manifests)
-├── Dockerfile
 └── .env.example
 ```
 

@@ -36,8 +36,18 @@ import uuid
 # Allow running straight from a clone without an editable install.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
+# Load .env (JWT_SECRET, DB_PATH, …) so this works the same way the running app
+# does — and so we seed the same SQLite file the server reads.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+# Import the hasher from passwords.py, not auth.py: auth.py refuses to import in
+# production unless JWT_SECRET is set, but seeding only needs to hash a password.
 from broombuster.api import db  # noqa: E402
-from broombuster.api.auth import _hash_pw  # noqa: E402
+from broombuster.api.passwords import _hash_pw  # noqa: E402
 
 _MIN_PW_LEN = 8
 
