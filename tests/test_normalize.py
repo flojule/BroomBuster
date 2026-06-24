@@ -351,6 +351,38 @@ class TestTimeDisplay:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# sweep_body() — display de-duplication
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSweepBody:
+    def test_strips_every_qualifier(self):
+        assert normalize.sweep_body("Every Mon (every)", "8AM-11AM") == "Every Mon, 8AM–11AM"
+
+    def test_strips_biweekly_qualifier(self):
+        # "(biweekly)" is display noise; dropping it lets it de-dupe with a
+        # weekly twin on the same day/time.
+        assert normalize.sweep_body("Every Wed (biweekly)", "8AM-11AM") == "Every Wed, 8AM–11AM"
+
+    def test_malformed_time_normalizes(self):
+        # PDF artifacts (stray spaces, bullet) must still produce the clean form
+        # so duplicate rows merge instead of leaking raw text.
+        assert normalize.sweep_body("Every Mon", "8:00 AM -11 :00 AM") == "Every Mon, 8AM–11AM"
+        assert normalize.sweep_body("Every Mon", "8:00 AM • 11: 00 AM") == "Every Mon, 8AM–11AM"
+
+    def test_bare_ordinal_run(self):
+        assert normalize.sweep_body("Mon 135", "8AM-10AM") == "Mon 1st, 3rd & 5th, 8AM–10AM"
+        assert normalize.sweep_body("Thu 13", "8AM-10AM") == "Thu 1st & 3rd, 8AM–10AM"
+        assert normalize.sweep_body("Tue 24", "") == "Tue 2nd & 4th"
+
+    def test_ordinal_with_letter_suffix_untouched(self):
+        # Already-suffixed ordinals must not be mangled.
+        assert normalize.sweep_body("Mon 1st & 3rd of month", "12PM–2PM") == "Mon 1st & 3rd, 12PM–2PM"
+
+    def test_empty_desc(self):
+        assert normalize.sweep_body("", "") == ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # house_number()
 # ─────────────────────────────────────────────────────────────────────────────
 

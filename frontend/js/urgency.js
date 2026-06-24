@@ -273,8 +273,16 @@
 
   // ── Canonical schedule display (mirror normalize.sweep_body + ───────────────
   //    analysis.format_schedule_side). Keeps card/hover identical to the server.
-  var TIME_RANGE_RE_G =
-    /(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*(?:[-–—]|to)\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/ig;
+  // Display parsing is LENIENT (mirror normalize._TIME_RANGE_RE): tolerates the
+  // PDF artifacts in raw tile data — bullet/middot/"o" separators, stray spaces
+  // inside hours/minutes and around colons, "A M"/"P,M". (Urgency timing stays
+  // on the strict TIME_RANGE_RE above, mirroring analysis._TIME_RANGE_RE.)
+  var _DISP_SRC =
+    '(\\d\\s*\\d?)\\s*(?::\\s*(\\d\\s*\\d))?\\s*(A[\\s,]*M|P[\\s,]*M)' +
+    '[\\s,]*(?:[-–—•·o]|to)\\s*' +
+    '(\\d\\s*\\d?)\\s*(?::\\s*(\\d\\s*\\d))?\\s*(A[\\s,]*M|P[\\s,]*M)';
+  var TIME_RANGE_DISP_RE   = new RegExp(_DISP_SRC, 'i');
+  var TIME_RANGE_DISP_RE_G = new RegExp(_DISP_SRC, 'ig');
   var WEEKDAY_CANON = {
     MON: [0, 'Mon'], MONDAY: [0, 'Mon'],
     TUE: [1, 'Tue'], TUES: [1, 'Tue'], TUESDAY: [1, 'Tue'],
@@ -289,18 +297,24 @@
     ['W', [2, 'Wed']], ['F', [4, 'Fri']], ['S', [5, 'Sat']],
   ];
 
+  // Mirror normalize._digits_only / _fmt_part: strip stray spaces from a
+  // captured digit/AMPM group before formatting.
+  function _digitsOnly(s) { return s ? s.replace(/\s+/g, '') : s; }
+  function _fmtPart(h, mn, ap) {
+    ap = ap.replace(/[\s,]+/g, '').toUpperCase();
+    h = _digitsOnly(h) || h;
+    mn = _digitsOnly(mn);
+    var m = mn ? parseInt(mn, 10) : 0;
+    return m ? (parseInt(h, 10) + ':' + (m < 10 ? '0' + m : m) + ap)
+             : (parseInt(h, 10) + ap);
+  }
   function timeDisplay(raw) {
     if (typeof raw !== 'string') return 'N/A';
     var s = raw.trim();
     if (s === '' || /^(n\/a|none|nan)$/i.test(s)) return 'N/A';
-    TIME_RANGE_RE.lastIndex = 0;
-    var m = TIME_RANGE_RE.exec(s);
+    var m = TIME_RANGE_DISP_RE.exec(s);
     if (!m) return s;
-    function fp(h, mn, ap) {
-      h = parseInt(h, 10); mn = parseInt(mn || '0', 10); ap = ap.toUpperCase();
-      return mn ? (h + ':' + (mn < 10 ? '0' + mn : mn) + ap) : (h + ap);
-    }
-    return fp(m[1], m[2], m[3]) + '–' + fp(m[4], m[5], m[6]);
+    return _fmtPart(m[1], m[2], m[3]) + '–' + _fmtPart(m[4], m[5], m[6]);
   }
 
   function weekdayFirst(desc) {
@@ -318,14 +332,31 @@
     return (every ? ['Every'] : []).concat([disp]).concat(rest).join(' ').trim();
   }
 
+  // Bare week-of-month ordinal runs (1–5 only) -> "1st & 3rd". Mirrors
+  // normalize._pretty_ordinals. Uses a leading capture instead of lookbehind
+  // for broad mobile-browser support; results are identical.
+  function _prettyOrdinals(text) {
+    return text.replace(/(^|[^\w])([1-5]{1,5})(?![\w])/g, function (_m, pre, run) {
+      var parts = [];
+      for (var i = 0; i < run.length; i++) {
+        var d = run.charAt(i);
+        parts.push(d + (d === '1' ? 'st' : d === '2' ? 'nd' : d === '3' ? 'rd' : 'th'));
+      }
+      var out = parts.length === 1 ? parts[0]
+              : parts.slice(0, -1).join(', ') + ' & ' + parts[parts.length - 1];
+      return pre + out;
+    });
+  }
+
   function sweepBody(desc, time) {
     var d = (typeof desc === 'string') ? desc : '';
-    d = d.replace(/\s*\(every\)/ig, '');
-    d = d.replace(TIME_RANGE_RE_G, '');
+    d = d.replace(/\s*\((?:every|bi-?weekly)\)/ig, '');
+    d = d.replace(TIME_RANGE_DISP_RE_G, '');
     d = d.replace(/\s*\bof\s+(?:the\s+)?month\b/ig, '');
     d = d.replace(/\band\b/ig, '&');
     d = d.replace(/\s+/g, ' ').replace(/^[\s,]+|[\s,]+$/g, '').trim();
     d = weekdayFirst(d);
+    d = _prettyOrdinals(d);
     if (!d || d.toUpperCase() === 'N/A') return '';
     var t = timeDisplay(time || '');
     if (t === '' || t === 'N/A' || d.indexOf(t) !== -1) return d;

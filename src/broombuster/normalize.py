@@ -244,10 +244,30 @@ _WEEKDAY_CANON = {
     "SUN": (6, "Sun"), "SUNDAY": (6, "Sun"),
 }
 
-_EVERY_PAREN_RE = re.compile(r"\s*\(every\)", re.IGNORECASE)
+# Parenthetical recurrence qualifiers that are display noise: "(every)" is SF's
+# weekly marker; "(biweekly)" appears (often contradictorily) alongside a weekly
+# row for the same segment. The urgency engine works off the codes, not this
+# text, so dropping it only de-duplicates the display — it never changes timing.
+_QUALIFIER_PAREN_RE = re.compile(r"\s*\((?:every|bi-?weekly)\)", re.IGNORECASE)
 _OF_MONTH_RE = re.compile(r"\s*\bof\s+(?:the\s+)?month\b", re.IGNORECASE)
 _AND_RE = re.compile(r"\band\b", re.IGNORECASE)
 _TRIM_EDGE_RE = re.compile(r"^[\s,]+|[\s,]+$")
+
+# Bare week-of-month ordinal runs (digits 1–5 only) -> friendly ordinals:
+#   "13" -> "1st & 3rd", "135" -> "1st, 3rd & 5th", "2" -> "2nd".
+# Restricted to 1–5 so it never mangles other numbers (years, "10", …); a digit
+# carrying a letter suffix ("1st") is skipped by the word-boundary guards.
+_BARE_ORD_RE = re.compile(r"(?<!\w)([1-5]{1,5})(?!\w)")
+_ORD_SUFFIX = {"1": "st", "2": "nd", "3": "rd"}
+
+
+def _pretty_ordinals(text: str) -> str:
+    def _repl(m: "re.Match") -> str:
+        parts = [d + _ORD_SUFFIX.get(d, "th") for d in m.group(1)]
+        if len(parts) == 1:
+            return parts[0]
+        return ", ".join(parts[:-1]) + " & " + parts[-1]
+    return _BARE_ORD_RE.sub(_repl, text)
 
 
 def _weekday_first(desc: str) -> str:
@@ -277,12 +297,13 @@ def _weekday_first(desc: str) -> str:
 def sweep_body(desc: str, time: str = "") -> str:
     """Canonical schedule line from a raw desc + time, e.g. "Wed 1st & 3rd, 9AM-12PM".
 
-    Rules (unified across card, hover, zone popup): drop "(every)" and
-    "of month", "and" -> "&", weekday first, time via time_display (minutes
-    only when non-zero) appended once. Returns "" for empty input.
+    Rules (unified across card, hover, zone popup): drop "(every)"/"(biweekly)"
+    and "of month", "and" -> "&", weekday first, bare ordinal runs -> "1st &
+    3rd", time via time_display (minutes only when non-zero) appended once.
+    Returns "" for empty input.
     """
     d = desc if isinstance(desc, str) else ""
-    d = _EVERY_PAREN_RE.sub("", d)
+    d = _QUALIFIER_PAREN_RE.sub("", d)
     d = _TIME_RANGE_RE.sub("", d)          # drop time embedded in desc (SF)
     d = _OF_MONTH_RE.sub("", d)
     d = _AND_RE.sub("&", d)
@@ -290,6 +311,7 @@ def sweep_body(desc: str, time: str = "") -> str:
     d = _TRIM_EDGE_RE.sub("", d)           # strip dangling commas/space
     d = _WHITESPACE_RE.sub(" ", d).strip()
     d = _weekday_first(d)
+    d = _pretty_ordinals(d)
     if not d or d.upper() == "N/A":
         return ""
     t = time_display(time or "")

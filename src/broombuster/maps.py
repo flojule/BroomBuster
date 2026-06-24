@@ -9,10 +9,11 @@ from broombuster.cities import CITIES as _CITIES
 
 
 def _clean_desc(s: str) -> str:
-    """Remove redundant phrases from schedule descriptions (e.g. SF '(every)')."""
+    """Remove redundant phrases from schedule descriptions (e.g. SF '(every)',
+    contradictory '(biweekly)')."""
     if not s or s == "N/A":
         return s
-    s = _re.sub(r"\s*\(every\)", "", s, flags=_re.IGNORECASE)
+    s = _re.sub(r"\s*\((?:every|bi-?weekly)\)", "", s, flags=_re.IGNORECASE)
     return _re.sub(r"\s+", " ", s).strip()
 
 # ---------------------------------------------------------------------------

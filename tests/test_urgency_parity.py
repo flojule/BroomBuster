@@ -136,6 +136,17 @@ def test_sweep_body_parity():
         ("No Signage", ""),
         ("", ""),
         ("1st Sun", "7:30AM-9:30AM"),
+        # Alameda PDF artifacts: stray spaces / bullet / mid-dot separators must
+        # normalize identically in Python and JS (else tiles leak raw times).
+        ("Every Mon (every)", "8:00 AM -11 :00 AM"),
+        ("Every Mon (every)", "8:00 AM • 11: 00 AM"),
+        ("Every Mon (every)", "1 0:00 AM -1:00 PM"),
+        # "(biweekly)" is display noise that must be dropped (de-dupes lines).
+        ("Every Wed (biweekly)", "8AM–11AM"),
+        # Bare ordinal runs -> friendly ordinals.
+        ("Mon 135", "8AM-10AM"),
+        ("Thu 13", "8AM-10AM"),
+        ("Tue 24", ""),
     ]
     cases, expected = [], {}
     for i, (d, t) in enumerate(cases_in):
@@ -173,7 +184,24 @@ def test_format_schedule_side_parity():
         ("DATES:2026-04-10,2026-05-08,2026-06-12,2026-07-10", "", ""),
     ]
     oakland_even = [("W13", "1st and 3rd Wed", "9:00AM-12:00PM")]
-    sides = {"sf": sf_even, "berkeley": berkeley_even, "oakland": oakland_even, "empty": []}
+    # Messy real-world side: duplicate weekday rows with differently-formatted
+    # raw times (PDF artifacts) plus a "(biweekly)" twin must collapse to the
+    # same clean lines in Python and JS.
+    messy_even = [
+        ("M", "Every Mon (every)", "8:00 AM -11 :00 AM"),
+        ("M", "Every Mon (every)", "8AM–11AM"),
+        ("M", "Every Mon (every)", "8:00 AM • 11: 00 AM"),
+        ("T", "Every Tue (biweekly)", "6AM–9AM"),
+        ("T", "Every Tue (every)", "6AM–9AM"),
+    ]
+    # All seven weekdays at one time -> "Every day, …".
+    everyday_even = [
+        (c, f"Every {d} (every)", "7AM–8AM") for c, d in
+        [("M", "Mon"), ("T", "Tue"), ("W", "Wed"), ("TH", "Thu"),
+         ("F", "Fri"), ("S", "Sat"), ("SU", "Sun")]
+    ]
+    sides = {"sf": sf_even, "berkeley": berkeley_even, "oakland": oakland_even,
+             "messy": messy_even, "everyday": everyday_even, "empty": []}
 
     cases, expected = [], {}
     for cid, entries in sides.items():
