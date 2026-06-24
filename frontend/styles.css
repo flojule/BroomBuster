@@ -3,6 +3,7 @@
       --blue: #2563eb; --red: #ef4444;
       --bg: #f8fafc; --card: #ffffff; --text: #1e293b;
       --muted: #64748b; --border: #e2e8f0;
+      --sheet-peek: 40px;  /* collapsed bottom-sheet handle height */
     }
     html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
     /* Keep map drags from scrolling/rubber-banding the page behind it. */
@@ -94,11 +95,14 @@
       white-space: nowrap; pointer-events: auto;
     }
     #place-banner.active { display: flex; }
+    #btn-confirm-place, #btn-cancel-place {
+      width: auto; margin: 0; padding: 3px 12px; border-radius: 12px;
+      font-size: .75rem; font-weight: 600;
+    }
+    #btn-confirm-place { background: #fff; color: var(--blue); border: none; }
     #btn-cancel-place {
-      width: auto; margin: 0; padding: 3px 10px;
       background: rgba(255,255,255,.2); color: #fff;
-      border: 1px solid rgba(255,255,255,.4); border-radius: 12px;
-      font-size: .75rem; font-weight: 500;
+      border: 1px solid rgba(255,255,255,.4); font-weight: 500;
     }
 
     /* ── Context menu (right-click) ── */
@@ -111,19 +115,43 @@
     .ctx-item { padding: 7px 14px; cursor: pointer; font-size: .85rem; }
     .ctx-item:hover { background: var(--bg); }
 
-    /* ── Cars panel (persistent top-right info card) ── */
+    /* ── Bottom sheet (cars & homes) ──
+       Anchored bottom-center; same shape on desktop and mobile. Collapses to a
+       handle so the map (and the placement center-target) stay unobstructed. */
+    #sheet {
+      position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+      z-index: 25; width: min(440px, 100%);
+      display: flex; flex-direction: column;
+      background: var(--card); border: 1px solid var(--border);
+      border-bottom: none; border-radius: 14px 14px 0 0;
+      box-shadow: 0 -3px 16px rgba(0,0,0,.16);
+      max-height: 62%; pointer-events: auto;
+    }
+    #sheet-handle {
+      flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+      padding: 7px 14px 8px; cursor: pointer; user-select: none;
+      position: relative;
+    }
+    #sheet-grip {
+      position: absolute; top: 5px; left: 50%; transform: translateX(-50%);
+      width: 34px; height: 4px; border-radius: 2px; background: var(--border);
+    }
+    #sheet-summary { flex: 1; font-size: .8rem; font-weight: 600; color: var(--text); padding-top: 3px; }
+    #sheet-chevron { font-size: .8rem; color: var(--muted); padding-top: 3px; transition: transform .15s; }
+    #sheet.collapsed #sheet-chevron { transform: rotate(180deg); }
+    #sheet.collapsed #cars-panel { display: none; }
+
     #cars-panel {
-      position: absolute; top: 10px; right: 10px; z-index: 20;
       display: flex; flex-direction: column; gap: 8px;
-      max-height: calc(100% - 20px); overflow-y: auto;
+      padding: 0 12px 12px; overflow-y: auto;
       pointer-events: auto; scrollbar-gutter: stable;
     }
     .cars-legend {
-      background: var(--card); border: 1px solid var(--border);
+      background: var(--bg); border: 1px solid var(--border);
       border-radius: 8px; padding: 6px 10px; overflow: hidden;
       font-size: .7rem; display: flex; gap: 8px; flex-wrap: wrap;
       box-shadow: 0 2px 6px rgba(0,0,0,.08);
-      user-select: none; width: 200px; flex-shrink: 0;
+      user-select: none; width: 100%; flex-shrink: 0;
     }
     .cars-legend span { white-space: nowrap; font-weight: 500; }
     .car-entry {
@@ -131,7 +159,7 @@
       background: var(--card); border: 1px solid var(--border);
       border-radius: 10px; padding: 10px 12px; overflow: hidden;
       box-shadow: 0 2px 10px rgba(0,0,0,.10);
-      width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 5px;
+      width: 100%; flex-shrink: 0; display: flex; flex-direction: column; gap: 5px;
       cursor: pointer; transition: border .12s, background .12s;
     }
     .car-entry.selected {
@@ -224,7 +252,7 @@
 
     /* ── + Add car button (cars panel) ── */
     .add-car-btn {
-      width: 200px; flex-shrink: 0; margin: 0; padding: 8px 12px;
+      width: 100%; flex-shrink: 0; margin: 0; padding: 8px 12px;
       background: var(--blue); color: #fff; border: none; border-radius: 10px;
       font-size: .82rem; font-weight: 600; cursor: pointer;
       box-shadow: 0 2px 10px rgba(0,0,0,.12);
@@ -323,26 +351,28 @@
     @keyframes toast-in  { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
     @keyframes toast-out { from { opacity: 1; } to { opacity: 0; } }
 
-    /* ── Center banner (live readout of the street at viewport center) ── */
+    /* ── Center banner (live readout of the street at viewport center) ──
+       Always multi-line: line 1 is the street/zone, the rest are schedule lines
+       (even/odd on their own lines). Each line stays on one line; a too-wide
+       line scrolls horizontally rather than wrapping. No tap-to-expand. Sits
+       just above the sheet handle; hidden while the sheet is expanded. */
     #snap-chip {
-      position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
-      z-index: 20; display: none; align-items: baseline; gap: 6px;
+      position: absolute; bottom: calc(var(--sheet-peek, 40px) + 10px);
+      left: 50%; transform: translateX(-50%);
+      z-index: 20; display: none; flex-direction: column; gap: 2px;
       max-width: 92vw; box-sizing: border-box;
-      background: rgba(15,23,42,.82); color: #e2e8f0;
-      border-radius: 14px; padding: 5px 12px;
+      background: rgba(15,23,42,.85); color: #e2e8f0;
+      border-radius: 12px; padding: 6px 12px;
       font-size: .74rem; font-weight: 500;
       box-shadow: 0 2px 8px rgba(0,0,0,.28);
-      pointer-events: auto; cursor: pointer; backdrop-filter: blur(4px);
+      pointer-events: auto; backdrop-filter: blur(4px);
     }
     #snap-chip.visible { display: flex; }
-    #snap-chip .sc-head { flex: 0 0 auto; font-weight: 600; white-space: nowrap; }
-    #snap-chip .sc-sched {
-      flex: 0 1 auto; min-width: 0; opacity: .82;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    }
-    /* Collapsed shows one line; tap to wrap the full schedule. */
-    #snap-chip.expanded { flex-wrap: wrap; }
-    #snap-chip.expanded .sc-sched { white-space: normal; overflow: visible; flex-basis: 100%; }
+    body.sheet-expanded #snap-chip { display: none; }
+    #snap-chip .sc-line { max-width: 100%; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
+    #snap-chip .sc-line::-webkit-scrollbar { display: none; }
+    #snap-chip .sc-head { font-weight: 600; }
+    #snap-chip .sc-sched { opacity: .85; }
 
     /* ── Center target (tiny always-on dot marking the point the banner reads) ── */
     #center-crosshair {
@@ -355,3 +385,10 @@
     body.dark #center-crosshair {
       background: rgba(226,232,240,.9); box-shadow: 0 0 0 2px rgba(0,0,0,.6);
     }
+    /* Placement: emphasize the target so it reads as the spot being set. */
+    #center-crosshair.placing {
+      width: 16px; height: 16px; background: transparent;
+      border: 2px solid var(--blue);
+      box-shadow: 0 0 0 2px rgba(255,255,255,.9), 0 0 0 3.5px var(--blue);
+    }
+    body.dark #center-crosshair.placing { box-shadow: 0 0 0 2px rgba(0,0,0,.6), 0 0 0 3.5px var(--blue); }

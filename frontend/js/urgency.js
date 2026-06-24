@@ -347,6 +347,26 @@
     return s;
   }
 
+  function hasAllFour(ords) {
+    return ords[1] && ords[2] && ords[3] && ords[4];
+  }
+
+  // Split sorted weekday ranks into runs of consecutive days.
+  function contiguousRuns(ranks) {
+    var runs = [], cur = [];
+    for (var i = 0; i < ranks.length; i++) {
+      if (cur.length && ranks[i] === cur[cur.length - 1] + 1) cur.push(ranks[i]);
+      else { if (cur.length) runs.push(cur); cur = [ranks[i]]; }
+    }
+    if (cur.length) runs.push(cur);
+    return runs;
+  }
+
+  function weekdayRangeBody(label, time) {
+    var t = timeDisplay(time || '');
+    return (t && t !== 'N/A') ? (label + ', ' + t) : label;
+  }
+
   function _ent(e) {
     if (Array.isArray(e)) return { code: e[0], desc: e[1] || '', time: e[2] || '' };
     return { code: e.code, desc: e.desc || '', time: e.time || '' };
@@ -376,13 +396,43 @@
       groups[key].items.push(w);
     }
 
+    // Mirror analysis.format_schedule_side: collapse every-week groups that
+    // share one time across a contiguous 3+ weekday run into "Mon–Fri, <time>"
+    // (all seven -> "Every day, <time>"); partial-ordinal groups stay per-day.
     var ranked = [];
+    var everyweek = {};   // td -> {time, days: {rank: [disp, fallback]}}
+    var ewOrder = [];
     for (i = 0; i < order.length; i++) {
       var g = groups[order[i]];
-      if (g.ords[1] && g.ords[2] && g.ords[3] && g.ords[4]) {
-        ranked.push([g.rank, -1, sweepBody('Every ' + g.disp, g.time)]);
+      var ordCount = 0;
+      for (var ok in g.ords) if (g.ords[ok]) ordCount++;
+      if (ordCount === 0 || hasAllFour(g.ords)) {
+        var fallback = hasAllFour(g.ords)
+          ? sweepBody('Every ' + g.disp, g.time)
+          : sweepBody(g.items[0].desc, g.items[0].time);
+        var td = timeDisplay(g.time || '');
+        if (!everyweek[td]) { everyweek[td] = { time: g.time, days: {} }; ewOrder.push(td); }
+        everyweek[td].days[g.rank] = [g.disp, fallback];
       } else {
         for (var j = 0; j < g.items.length; j++) ranked.push([g.rank, 0, sweepBody(g.items[j].desc, g.items[j].time)]);
+      }
+    }
+    for (i = 0; i < ewOrder.length; i++) {
+      var slot = everyweek[ewOrder[i]];
+      var ordRanks = Object.keys(slot.days).map(Number).sort(function (a, b) { return a - b; });
+      if (ordRanks.length === 7) {
+        ranked.push([0, -1, weekdayRangeBody('Every day', slot.time)]);
+        continue;
+      }
+      var runs = contiguousRuns(ordRanks);
+      for (var ri = 0; ri < runs.length; ri++) {
+        var run = runs[ri];
+        if (run.length >= 3) {
+          var label = slot.days[run[0]][0] + '–' + slot.days[run[run.length - 1]][0];
+          ranked.push([run[0], -1, weekdayRangeBody(label, slot.time)]);
+        } else {
+          for (var rr = 0; rr < run.length; rr++) ranked.push([run[rr], -1, slot.days[run[rr]][1]]);
+        }
       }
     }
     ranked.sort(function (a, b) { return (a[0] - b[0]) || (a[1] - b[1]); });
